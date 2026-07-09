@@ -1,0 +1,12 @@
+{
+  "id": "party_race",
+  "name": "Party Race",
+  "author": "Junxzi",
+  "description": "Private same-seed team race tools for Slay the Spire 2. Current build only verifies mod loading.",
+  "version": "0.1.0",
+  "has_pck": false,
+  "has_dll": true,
+  "dependencies": [],
+  "affects_gameplay": false,
+  "min_game_version": "v0.107.1"
+}

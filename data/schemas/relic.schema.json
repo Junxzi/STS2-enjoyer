@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/clockwork-descent/relic.schema.json",
+  "title": "RelicDefinition",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "displayName",
+    "rarity",
+    "rulesText",
+    "triggers"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9_]+$"
+    },
+    "displayName": {
+      "type": "string",
+      "minLength": 1
+    },
+    "rarity": {
+      "enum": ["common", "uncommon", "rare", "boss", "shop", "event"]
+    },
+    "rulesText": {
+      "type": "string"
+    },
+    "triggers": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["when", "effects"],
+        "properties": {
+          "when": {
+            "type": "string",
+            "pattern": "^[a-z0-9_]+$"
+          },
+          "condition": {
+            "type": "object"
+          },
+          "effects": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["op"],
+              "properties": {
+                "op": {
+                  "type": "string",
+                  "pattern": "^[a-z0-9_]+$"
+                }
+              },
+              "additionalProperties": true
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "balance": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  }
+}

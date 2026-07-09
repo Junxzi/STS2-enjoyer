@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/clockwork-descent/card.schema.json",
+  "title": "CardDefinition",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "displayName",
+    "character",
+    "rarity",
+    "type",
+    "cost",
+    "target",
+    "tags",
+    "rulesText",
+    "effects"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9_]+$"
+    },
+    "displayName": {
+      "type": "string",
+      "minLength": 1
+    },
+    "character": {
+      "type": "string",
+      "pattern": "^[a-z0-9_]+$"
+    },
+    "rarity": {
+      "enum": ["starter", "common", "uncommon", "rare", "special"]
+    },
+    "type": {
+      "enum": ["attack", "skill", "gear", "status", "curse"]
+    },
+    "cost": {
+      "oneOf": [
+        { "type": "integer", "minimum": 0, "maximum": 5 },
+        { "const": "X" }
+      ]
+    },
+    "target": {
+      "enum": ["enemy", "all_enemies", "self", "none"]
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z0-9_]+$"
+      },
+      "uniqueItems": true
+    },
+    "rulesText": {
+      "type": "string"
+    },
+    "effects": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/effect"
+      }
+    },
+    "upgrade": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "balance": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "$defs": {
+    "effect": {
+      "type": "object",
+      "required": ["op"],
+      "properties": {
+        "op": {
+          "type": "string",
+          "pattern": "^[a-z0-9_]+$"
+        },
+        "amount": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string",
+          "pattern": "^[a-z0-9_]+$"
+        },
+        "duration": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

@@ -1,0 +1,79 @@
+[
+  {
+    "id": "warden_strike_gear",
+    "displayName": "Strike Gear",
+    "character": "warden",
+    "rarity": "starter",
+    "type": "attack",
+    "cost": 1,
+    "target": "enemy",
+    "tags": ["basic", "damage"],
+    "rulesText": "Deal 6 damage.",
+    "effects": [
+      { "op": "deal_damage", "amount": 6 }
+    ],
+    "upgrade": {
+      "displayName": "Strike Gear+",
+      "rulesText": "Deal 9 damage.",
+      "effects": [
+        { "op": "deal_damage", "amount": 9 }
+      ]
+    },
+    "balance": {
+      "role": "Starter attack baseline.",
+      "notes": "Keep intentionally plain so reward cards feel better."
+    }
+  },
+  {
+    "id": "warden_guard_plate",
+    "displayName": "Guard Plate",
+    "character": "warden",
+    "rarity": "starter",
+    "type": "skill",
+    "cost": 1,
+    "target": "self",
+    "tags": ["basic", "block"],
+    "rulesText": "Gain 5 Block.",
+    "effects": [
+      { "op": "gain_block", "amount": 5 }
+    ],
+    "upgrade": {
+      "displayName": "Guard Plate+",
+      "rulesText": "Gain 8 Block.",
+      "effects": [
+        { "op": "gain_block", "amount": 8 }
+      ]
+    },
+    "balance": {
+      "role": "Starter block baseline.",
+      "notes": "Should be useful but not exciting."
+    }
+  },
+  {
+    "id": "warden_clock_jab",
+    "displayName": "Clock Jab",
+    "character": "warden",
+    "rarity": "starter",
+    "type": "attack",
+    "cost": 1,
+    "target": "enemy",
+    "tags": ["damage", "time"],
+    "rulesText": "Deal 5 damage. Gain 1 Time.",
+    "effects": [
+      { "op": "deal_damage", "amount": 5 },
+      { "op": "gain_time", "amount": 1 }
+    ],
+    "upgrade": {
+      "displayName": "Clock Jab+",
+      "rulesText": "Deal 7 damage. Gain 1 Time.",
+      "effects": [
+        { "op": "deal_damage", "amount": 7 },
+        { "op": "gain_time", "amount": 1 }
+      ]
+    },
+    "balance": {
+      "role": "Introduces the character resource.",
+      "notes": "Lower direct damage pays for Time generation."
+    }
+  }
+]

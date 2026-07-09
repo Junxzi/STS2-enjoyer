@@ -1,0 +1,64 @@
+[
+  {
+    "id": "relic_spring_loaded_core",
+    "displayName": "Spring-Loaded Core",
+    "rarity": "common",
+    "rulesText": "At the start of combat, gain 1 Time.",
+    "triggers": [
+      {
+        "when": "combat_start",
+        "effects": [
+          { "op": "gain_time", "amount": 1 }
+        ]
+      }
+    ],
+    "balance": {
+      "role": "Small consistency relic for Time decks."
+    }
+  },
+  {
+    "id": "relic_polished_cog",
+    "displayName": "Polished Cog",
+    "rarity": "uncommon",
+    "rulesText": "Every third Attack you play each combat deals 4 additional damage.",
+    "triggers": [
+      {
+        "when": "card_played",
+        "condition": {
+          "card_type": "attack",
+          "every_nth_this_combat": 3
+        },
+        "effects": [
+          { "op": "modify_current_card_damage", "amount": 4 }
+        ]
+      }
+    ],
+    "balance": {
+      "role": "Rewards attack density and card counting."
+    }
+  },
+  {
+    "id": "relic_cracked_hourglass",
+    "displayName": "Cracked Hourglass",
+    "rarity": "boss",
+    "rulesText": "Gain 1 Energy each turn. At the start of combat, add 2 Slow to yourself.",
+    "triggers": [
+      {
+        "when": "turn_start",
+        "effects": [
+          { "op": "gain_energy", "amount": 1 }
+        ]
+      },
+      {
+        "when": "combat_start",
+        "effects": [
+          { "op": "apply_status", "status": "slow", "amount": 2, "target": "self" }
+        ]
+      }
+    ],
+    "balance": {
+      "role": "Boss relic with a clear downside.",
+      "risk": "Energy relics are usually format-warping; test carefully."
+    }
+  }
+]
