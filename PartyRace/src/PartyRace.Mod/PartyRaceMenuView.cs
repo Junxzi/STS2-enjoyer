@@ -214,6 +214,7 @@ public sealed partial class PartyRaceMenuView : Control
             RacePlayer localPlayer = EnsureLocalPlayerInRoom();
             bool nextReady = !localPlayer.IsReady;
             _roomManager.SetPlayerReady(_room, localPlayer.PlayerId, localPlayer.CharacterId ?? "ironclad", nextReady);
+            RecomputeTeamReadyStates(_room);
             PartyRaceLog.Append($"Host ready changed ready={nextReady}.");
             PublishReadyUpdate(localPlayer.PlayerId, localPlayer.CharacterId ?? "ironclad", nextReady);
             PublishTeamUpdate();
@@ -244,6 +245,7 @@ public sealed partial class PartyRaceMenuView : Control
             _roomManager.JoinRoom(_room, CreatePlayer(RivalPlayerId, "Demo Rival"));
             _roomManager.CreateTeam(_room, RivalPlayerId, "Rival Team");
             _roomManager.SetPlayerReady(_room, RivalPlayerId, "silent", true);
+            RecomputeTeamReadyStates(_room);
             PartyRaceLog.Append("Added ready demo rival.");
             PublishReadyUpdate(RivalPlayerId, "silent", isReady: true);
             PublishTeamUpdate();
@@ -265,6 +267,8 @@ public sealed partial class PartyRaceMenuView : Control
 
         try
         {
+            RecomputeTeamReadyStates(_room);
+            PartyRaceLog.Append($"Start race requested. {BuildStartGateText()}");
             RaceStartPlan startPlan = _roomManager.StartRace(_room);
             PartyRaceLog.Append($"Local Party Race started seed={startPlan.RunSeed} hash={startPlan.RaceConfigHash}.");
             PublishRaceStart(startPlan);
@@ -441,8 +445,9 @@ public sealed partial class PartyRaceMenuView : Control
             room.Teams.Add(team);
         }
 
+        RecomputeTeamReadyStates(room);
         room.EventLog.Add(new RaceEvent(_clock.UtcNow, "NetworkTeamUpdate", $"Team update received from {senderId}."));
-        PartyRaceLog.Append($"Applied TeamUpdate from sender={senderId} teams={room.Teams.Count} room={message.RoomId}.");
+        PartyRaceLog.Append($"Applied TeamUpdate from sender={senderId} teams={room.Teams.Count} room={message.RoomId}. {BuildStartGateText()}");
         Refresh("Network team update received.");
     }
 
@@ -452,17 +457,21 @@ public sealed partial class PartyRaceMenuView : Control
         RacePlayer player = EnsureNetworkPlayer(room, message.PlayerId);
         player.CharacterId = message.CharacterId;
         player.IsReady = message.IsReady;
-        if (player.TeamId is not null)
+        RecomputeTeamReadyStates(room);
+
+        room.EventLog.Add(new RaceEvent(_clock.UtcNow, "NetworkReadyUpdate", $"Player '{message.PlayerId}' ready={message.IsReady} from {senderId}."));
+        PartyRaceLog.Append($"Applied ReadyUpdate from sender={senderId} player={message.PlayerId} ready={message.IsReady} room={message.RoomId}. {BuildStartGateText()}");
+        Refresh("Network ready update received.");
+    }
+
+    private static void RecomputeTeamReadyStates(RaceRoom room)
+    {
+        foreach (RaceTeam team in room.Teams)
         {
-            RaceTeam team = room.GetTeam(player.TeamId);
             team.ReadyState = team.PlayerIds.Count > 0 && team.PlayerIds.All(id => room.GetPlayer(id).IsReady)
                 ? TeamReadyState.Ready
                 : TeamReadyState.NotReady;
         }
-
-        room.EventLog.Add(new RaceEvent(_clock.UtcNow, "NetworkReadyUpdate", $"Player '{message.PlayerId}' ready={message.IsReady} from {senderId}."));
-        PartyRaceLog.Append($"Applied ReadyUpdate from sender={senderId} player={message.PlayerId} ready={message.IsReady} room={message.RoomId}.");
-        Refresh("Network ready update received.");
     }
 
     private void ApplyRaceStart(RaceStartMessage message, ulong senderId)
