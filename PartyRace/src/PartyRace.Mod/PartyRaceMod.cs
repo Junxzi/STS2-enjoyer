@@ -13,6 +13,7 @@ public static class PartyRaceMod
     private const string HarmonyId = "party_race";
     private const string MainMenuTypeName = "MegaCrit.Sts2.Core.Nodes.Screens.MainMenu.NMainMenu";
     private const string UnlockStateTypeName = "MegaCrit.Sts2.Core.Unlocks.UnlockState";
+    private const string ModelIdSerializationCacheTypeName = "MegaCrit.Sts2.Core.Multiplayer.Serialization.ModelIdSerializationCache";
     private static readonly string[] NetServiceOwnerTypeNames =
     [
         "MegaCrit.Sts2.Core.Multiplayer.Game.Lobby.StartRunLobby",
@@ -35,6 +36,7 @@ public static class PartyRaceMod
     private const string ButtonNodeName = "PartyRaceMainMenuButton";
     private const string ForceCustomButtonNodeName = "PartyRaceForceCustomButton";
     private static bool s_dependencyResolverInstalled;
+    private static string[]? s_serializableEpochIds;
 
     public static void Initialize()
     {
@@ -333,7 +335,7 @@ public static class PartyRaceMod
         }
 
         int before = unlockedEpochIds.Count;
-        foreach (string epochId in GetAllEpochIds(unlockState.GetType().Assembly))
+        foreach (string epochId in GetSerializableEpochIds(unlockState.GetType().Assembly))
         {
             unlockedEpochIds.Add(epochId);
         }
@@ -347,7 +349,12 @@ public static class PartyRaceMod
         PartyRaceLog.Append($"Forced unlock state epochs {before}->{unlockedEpochIds.Count} for {unlockState.GetType().FullName}.");
     }
 
-    private static IEnumerable<string> GetAllEpochIds(Assembly sts2Assembly)
+    private static IEnumerable<string> GetSerializableEpochIds(Assembly sts2Assembly)
+    {
+        return s_serializableEpochIds ??= BuildSerializableEpochIds(sts2Assembly).ToArray();
+    }
+
+    private static IEnumerable<string> BuildSerializableEpochIds(Assembly sts2Assembly)
     {
         foreach (Type type in sts2Assembly.GetTypes())
         {
@@ -357,7 +364,55 @@ public static class PartyRaceMod
                 continue;
             }
 
-            yield return type.Name;
+            string? epochId = GetEpochId(type);
+            if (string.IsNullOrWhiteSpace(epochId) || !CanSerializeEpochId(epochId))
+            {
+                continue;
+            }
+
+            yield return epochId;
+        }
+    }
+
+    private static string? GetEpochId(Type epochType)
+    {
+        try
+        {
+            object? epoch = Activator.CreateInstance(epochType);
+            return epochType.GetProperty("Id", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)?.GetValue(epoch) as string;
+        }
+        catch (Exception exception)
+        {
+            PartyRaceLog.Append($"Skipped epoch id lookup for {epochType.FullName}: {exception.GetType().Name}: {exception.Message}");
+            return null;
+        }
+    }
+
+    private static bool CanSerializeEpochId(string epochId)
+    {
+        Type? cacheType = AccessTools.TypeByName(ModelIdSerializationCacheTypeName);
+        MethodInfo? method = cacheType is null
+            ? null
+            : AccessTools.Method(cacheType, "GetNetIdForEpochId", [typeof(string)]);
+        if (method is null)
+        {
+            PartyRaceLog.Append($"Could not validate epoch id serialization: {ModelIdSerializationCacheTypeName}.GetNetIdForEpochId was not found.");
+            return false;
+        }
+
+        try
+        {
+            method.Invoke(null, [epochId]);
+            return true;
+        }
+        catch (TargetInvocationException exception) when (exception.InnerException is ArgumentException)
+        {
+            return false;
+        }
+        catch (Exception exception)
+        {
+            PartyRaceLog.Append($"Skipped unserializable epoch id {epochId}: {exception.GetType().Name}: {exception.Message}");
+            return false;
         }
     }
 
@@ -431,7 +486,7 @@ public static class PartyRaceMod
             Position = position,
             Size = size,
             CustomMinimumSize = size,
-            ZIndex = 5000,
+            ZIndex = 1000,
             MouseFilter = Control.MouseFilterEnum.Stop,
             Modulate = new Color(1f, 1f, 1f, 0.85f)
         };
