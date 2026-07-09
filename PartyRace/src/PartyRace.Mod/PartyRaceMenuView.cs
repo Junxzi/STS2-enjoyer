@@ -9,6 +9,7 @@ namespace PartyRace.Mod;
 
 public sealed partial class PartyRaceMenuView : Control
 {
+    private const string LayerNodeName = "PartyRaceLayer";
     private const string MenuNodeName = "PartyRaceMenuView";
     private const string RivalPlayerId = "demo_rival";
 
@@ -18,6 +19,9 @@ public sealed partial class PartyRaceMenuView : Control
     private readonly RaceRoomManager _roomManager;
 
     private bool _isBuilt;
+    private Control? _menuRoot;
+    private Control? _hudRoot;
+    private Label? _hudLabel;
     private LineEdit? _roomNameInput;
     private LineEdit? _seedInput;
     private Label? _statusLabel;
@@ -43,7 +47,9 @@ public sealed partial class PartyRaceMenuView : Control
 
     public static PartyRaceMenuView EnsureAttached(Control parent)
     {
-        foreach (Node child in parent.GetChildren())
+        Window root = parent.GetTree().Root;
+        CanvasLayer layer = EnsureLayer(root);
+        foreach (Node child in layer.GetChildren())
         {
             if (child.Name.ToString() == MenuNodeName && child is PartyRaceMenuView existing)
             {
@@ -55,8 +61,27 @@ public sealed partial class PartyRaceMenuView : Control
         {
             Name = MenuNodeName
         };
-        parent.AddChild(view);
+        layer.AddChild(view);
         return view;
+    }
+
+    private static CanvasLayer EnsureLayer(Window root)
+    {
+        foreach (Node child in root.GetChildren())
+        {
+            if (child.Name.ToString() == LayerNodeName && child is CanvasLayer existing)
+            {
+                return existing;
+            }
+        }
+
+        CanvasLayer layer = new()
+        {
+            Name = LayerNodeName,
+            Layer = 100
+        };
+        root.AddChild(layer);
+        return layer;
     }
 
     public override void _Ready()
@@ -67,7 +92,11 @@ public sealed partial class PartyRaceMenuView : Control
     public void Open()
     {
         EnsureBuilt();
-        Visible = true;
+        if (_menuRoot is not null)
+        {
+            _menuRoot.Visible = true;
+        }
+
         if (_seedInput is not null && string.IsNullOrWhiteSpace(_seedInput.Text))
         {
             _seedInput.Text = _seedService.GenerateSharedRandomSeed();
@@ -84,19 +113,64 @@ public sealed partial class PartyRaceMenuView : Control
         }
 
         _isBuilt = true;
-        Visible = false;
-        Position = new Vector2(64, 56);
-        Size = new Vector2(680, 500);
+        Visible = true;
+        Position = Vector2.Zero;
+        Size = new Vector2(1920, 1080);
         ZIndex = 1100;
-        MouseFilter = MouseFilterEnum.Stop;
+        MouseFilter = MouseFilterEnum.Ignore;
+
+        _hudRoot = new Control
+        {
+            Position = new Vector2(32, 32),
+            Size = new Vector2(360, 92),
+            MouseFilter = MouseFilterEnum.Stop,
+            Visible = false
+        };
+        AddChild(_hudRoot);
+
+        PanelContainer hudPanel = new()
+        {
+            Position = Vector2.Zero,
+            Size = _hudRoot.Size,
+            MouseFilter = MouseFilterEnum.Stop
+        };
+        _hudRoot.AddChild(hudPanel);
+
+        _hudLabel = new Label
+        {
+            Text = "Party Race",
+            Position = new Vector2(12, 8),
+            Size = new Vector2(232, 76)
+        };
+        _hudRoot.AddChild(_hudLabel);
+
+        Button openButton = new()
+        {
+            Text = "Open",
+            Position = new Vector2(260, 28),
+            Size = new Vector2(84, 36),
+            CustomMinimumSize = new Vector2(84, 36),
+            MouseFilter = MouseFilterEnum.Stop
+        };
+        openButton.Pressed += Open;
+        _hudRoot.AddChild(openButton);
+
+        _menuRoot = new Control
+        {
+            Position = new Vector2(64, 56),
+            Size = new Vector2(680, 500),
+            MouseFilter = MouseFilterEnum.Stop,
+            Visible = false
+        };
+        AddChild(_menuRoot);
 
         PanelContainer panel = new()
         {
             Position = Vector2.Zero,
-            Size = Size,
+            Size = _menuRoot.Size,
             MouseFilter = MouseFilterEnum.Stop
         };
-        AddChild(panel);
+        _menuRoot.AddChild(panel);
 
         AddLabel("Party Race", 24, 18, 620, 36);
         AddLabel("STS2 lobby sync proof. Ready and team updates mirror over the active multiplayer lobby.", 24, 58, 620, 28);
@@ -122,8 +196,13 @@ public sealed partial class PartyRaceMenuView : Control
         Button closeButton = AddButton("Close", 424, 424, 220, 36);
         closeButton.Pressed += () =>
         {
-            Visible = false;
+            if (_menuRoot is not null)
+            {
+                _menuRoot.Visible = false;
+            }
+
             PartyRaceLog.Append("Party Race menu closed.");
+            Refresh();
         };
 
         _statusLabel = AddLabel("Create/sync a room to begin.", 24, 204, 390, 104);
@@ -140,7 +219,7 @@ public sealed partial class PartyRaceMenuView : Control
             Position = new Vector2(x, y),
             Size = new Vector2(width, height)
         };
-        AddChild(label);
+        (_menuRoot ?? this).AddChild(label);
         return label;
     }
 
@@ -152,7 +231,7 @@ public sealed partial class PartyRaceMenuView : Control
             Position = new Vector2(x, y),
             Size = new Vector2(width, height)
         };
-        AddChild(lineEdit);
+        (_menuRoot ?? this).AddChild(lineEdit);
         return lineEdit;
     }
 
@@ -166,7 +245,7 @@ public sealed partial class PartyRaceMenuView : Control
             CustomMinimumSize = new Vector2(width, height),
             MouseFilter = MouseFilterEnum.Stop
         };
-        AddChild(button);
+        (_menuRoot ?? this).AddChild(button);
         return button;
     }
 
@@ -623,6 +702,46 @@ public sealed partial class PartyRaceMenuView : Control
         {
             _startButton.Disabled = !hasRoom || _room!.State != RaceState.Lobby;
         }
+
+        RefreshHud();
+    }
+
+    private void RefreshHud()
+    {
+        if (_hudRoot is null || _hudLabel is null)
+        {
+            return;
+        }
+
+        bool shouldShow = _room is not null || PartyRaceSts2Context.IsPartyRaceRunArmed || !string.IsNullOrWhiteSpace(_lastObservedSts2RunSeed);
+        _hudRoot.Visible = shouldShow;
+        if (!shouldShow)
+        {
+            return;
+        }
+
+        string seed = _room?.Config.RunSeed ?? _lastObservedSts2RunSeed ?? "pending";
+        string state = _room?.State.ToString() ?? "Armed";
+        _hudLabel.Text = $"Party Race {state}{System.Environment.NewLine}Seed {seed}{System.Environment.NewLine}{BuildHudTeamsText()}";
+    }
+
+    private string BuildHudTeamsText()
+    {
+        if (_room is null || _room.Teams.Count == 0)
+        {
+            return PartyRaceSts2Context.StatusText;
+        }
+
+        return string.Join(" | ", _room.Teams.Take(2).Select(team =>
+        {
+            TeamProgress? progress = team.LatestProgress ?? _room.ProgressByTeam.GetValueOrDefault(team.TeamId);
+            if (progress is not null)
+            {
+                return $"{team.TeamName}: A{progress.Act} F{progress.Floor}";
+            }
+
+            return $"{team.TeamName}: {team.RunState}";
+        }));
     }
 
     private void RefreshError(string prefix, Exception exception, string? detail = null)
