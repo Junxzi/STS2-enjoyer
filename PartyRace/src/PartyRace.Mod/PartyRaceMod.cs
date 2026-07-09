@@ -18,6 +18,14 @@ public static class PartyRaceMod
         "MegaCrit.Sts2.Core.Multiplayer.Game.Lobby.LoadRunLobby",
         "MegaCrit.Sts2.Core.Multiplayer.Game.Lobby.RunLobby"
     ];
+    private static readonly string[] BeginRunListenerTypeNames =
+    [
+        "MegaCrit.Sts2.Core.Nodes.Screens.CharacterSelect.NCharacterSelectScreen",
+        "MegaCrit.Sts2.Core.Nodes.Screens.CharacterSelect.NMultiplayerLoadGameScreen",
+        "MegaCrit.Sts2.Core.Nodes.Screens.CustomRun.NCustomRunLoadScreen",
+        "MegaCrit.Sts2.Core.Nodes.Screens.CustomRun.NCustomRunScreen",
+        "MegaCrit.Sts2.Core.Nodes.Screens.DailyRun.NDailyRunLoadScreen"
+    ];
     private const string ButtonNodeName = "PartyRaceMainMenuButton";
     private static bool s_dependencyResolverInstalled;
 
@@ -30,6 +38,7 @@ public static class PartyRaceMod
         {
             InstallMainMenuPatch();
             InstallNetServiceCapturePatches();
+            InstallBeginRunPatches();
         }
         catch (Exception exception)
         {
@@ -117,6 +126,34 @@ public static class PartyRaceMod
         }
     }
 
+    private static void InstallBeginRunPatches()
+    {
+        Harmony harmony = new(HarmonyId);
+        MethodInfo? postfixMethod = AccessTools.Method(typeof(PartyRaceMod), nameof(OnSts2BeginRun));
+        if (postfixMethod is null)
+        {
+            PartyRaceLog.Append("Could not find STS2 BeginRun postfix.");
+            return;
+        }
+
+        foreach (string typeName in BeginRunListenerTypeNames)
+        {
+            Type? listenerType = AccessTools.TypeByName(typeName);
+            if (listenerType is null)
+            {
+                PartyRaceLog.Append($"Could not find STS2 BeginRun listener type: {typeName}");
+                continue;
+            }
+
+            foreach (MethodInfo method in AccessTools.GetDeclaredMethods(listenerType)
+                         .Where(method => method.Name == "BeginRun" && FirstParameterIsString(method)))
+            {
+                harmony.Patch(method, postfix: new HarmonyMethod(postfixMethod));
+                PartyRaceLog.Append($"Installed STS2 BeginRun seed capture patch: {listenerType.FullName}.{method.Name}.");
+            }
+        }
+    }
+
     private static void OnMainMenuReady(object __instance)
     {
         try
@@ -170,6 +207,24 @@ public static class PartyRaceMod
         }
     }
 
+    private static void OnSts2BeginRun(object __instance, object[] __args)
+    {
+        try
+        {
+            if (__args.Length == 0 || __args[0] is not string seed || string.IsNullOrWhiteSpace(seed))
+            {
+                PartyRaceLog.Append($"Skipped STS2 BeginRun seed capture from {__instance.GetType().FullName}: seed argument was missing.");
+                return;
+            }
+
+            PartyRaceSts2Context.ObserveSts2RunBegin(seed, __instance.GetType().FullName ?? __instance.GetType().Name);
+        }
+        catch (Exception exception)
+        {
+            PartyRaceLog.Append($"Failed to observe STS2 BeginRun: {exception}");
+        }
+    }
+
     private static bool HasDirectChild(Node parent, string childName)
     {
         foreach (Node child in parent.GetChildren())
@@ -181,5 +236,11 @@ public static class PartyRaceMod
         }
 
         return false;
+    }
+
+    private static bool FirstParameterIsString(MethodInfo method)
+    {
+        ParameterInfo[] parameters = method.GetParameters();
+        return parameters.Length > 0 && parameters[0].ParameterType == typeof(string);
     }
 }

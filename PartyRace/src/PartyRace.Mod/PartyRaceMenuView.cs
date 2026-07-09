@@ -28,6 +28,7 @@ public sealed partial class PartyRaceMenuView : Control
     private Button? _startButton;
     private RaceRoom? _room;
     private string _lastNetworkStatus = "No Party Race network messages yet.";
+    private string? _lastObservedSts2RunSeed;
 
     public PartyRaceMenuView()
     {
@@ -37,6 +38,7 @@ public sealed partial class PartyRaceMenuView : Control
             _seedService,
             new CompatibilityService());
         PartyRaceSts2Context.MessageReceived += OnPartyRaceMessageReceived;
+        PartyRaceSts2Context.Sts2RunBegan += OnSts2RunBegan;
     }
 
     public static PartyRaceMenuView EnsureAttached(Control parent)
@@ -489,6 +491,49 @@ public sealed partial class PartyRaceMenuView : Control
         room.EventLog.Add(new RaceEvent(_clock.UtcNow, "NetworkRaceStart", $"Race start received seed={message.RunSeed} from {senderId}."));
         PartyRaceLog.Append($"Applied RaceStart from sender={senderId} seed={message.RunSeed} hash={message.RaceConfigHash} room={message.RoomId}.");
         Refresh($"Network race start received. Seed {message.RunSeed}{System.Environment.NewLine}{seedSyncStatus}");
+    }
+
+    private void OnSts2RunBegan(string seed, string source)
+    {
+        if (string.Equals(_lastObservedSts2RunSeed, seed, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _lastObservedSts2RunSeed = seed;
+        _lastNetworkStatus = $"STS2 run began with seed {seed} at {DateTimeOffset.Now:HH:mm:ss}.";
+
+        if (_seedInput is not null)
+        {
+            _seedInput.Text = seed;
+        }
+
+        if (_room is null)
+        {
+            PartyRaceLog.Append($"Observed STS2 run seed={seed} from {source}, but no Party Race room exists.");
+            Refresh($"STS2 run began. Seed {seed}");
+            return;
+        }
+
+        _room.Config = _configValidator.WithComputedHash(_room.Config with { RunSeed = seed });
+        _room.State = RaceState.Running;
+        _room.StartedAt ??= _clock.UtcNow;
+
+        foreach (RaceTeam team in _room.Teams)
+        {
+            team.RunState = RunSessionState.Launching;
+        }
+
+        _room.EventLog.Add(new RaceEvent(_clock.UtcNow, "Sts2RunBegan", $"STS2 run began seed={seed} from {source}."));
+        PartyRaceLog.Append($"Applied STS2 BeginRun seed={seed} source={source} room={_room.RoomId}.");
+
+        if (PartyRaceSts2Context.IsHost)
+        {
+            RaceStartPlan plan = new(_room.RoomId, seed, _room.Config.RaceConfigHash, _room.StartedAt.Value, _room.Teams.Select(team => team.TeamId).ToArray());
+            PublishRaceStart(plan);
+        }
+
+        Refresh($"STS2 run began. Seed {seed}");
     }
 
     private static string SyncSts2LobbySeed(string runSeed)

@@ -10,6 +10,7 @@ internal static class PartyRaceSts2Context
     private static MessageHandlerDelegate<PartyRaceNetEnvelope>? s_messageHandler;
 
     public static event Action<RaceMessage, ulong>? MessageReceived;
+    public static event Action<string, string>? Sts2RunBegan;
 
     public static INetGameService? NetService { get; private set; }
     public static object? NetServiceOwner { get; private set; }
@@ -109,6 +110,14 @@ internal static class PartyRaceSts2Context
         }
         catch (TargetInvocationException exception) when (exception.InnerException is not null)
         {
+            if (exception.InnerException is NotImplementedException &&
+                exception.InnerException.Message.Contains("standard mode", StringComparison.OrdinalIgnoreCase))
+            {
+                detail = "STS2 standard mode does not allow manual seed sync. Start the STS2 run normally; Party Race will follow the final STS2 seed.";
+                PartyRaceLog.Append($"Skipped STS2 lobby seed sync seed={runSeed}: {detail}");
+                return false;
+            }
+
             detail = $"{exception.InnerException.GetType().Name}: {exception.InnerException.Message}";
             PartyRaceLog.Append($"Failed to sync STS2 lobby seed seed={runSeed}: {exception.InnerException}");
             return false;
@@ -119,6 +128,12 @@ internal static class PartyRaceSts2Context
             PartyRaceLog.Append($"Failed to sync STS2 lobby seed seed={runSeed}: {exception}");
             return false;
         }
+    }
+
+    public static void ObserveSts2RunBegin(string seed, string source)
+    {
+        PartyRaceLog.Append($"Observed STS2 BeginRun seed={seed} source={source}.");
+        Sts2RunBegan?.Invoke(seed, source);
     }
 
     private static void HandleEnvelope(PartyRaceNetEnvelope envelope, ulong senderId)
