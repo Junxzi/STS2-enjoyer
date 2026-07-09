@@ -5,6 +5,7 @@ namespace PartyRace.Core.Network;
 
 public enum PartyRaceMessageKind
 {
+    PartyRaceHello = 0,
     RoomJoin = 1,
     TeamUpdate = 2,
     ReadyUpdate = 3,
@@ -25,6 +26,7 @@ public static class PartyRaceMessageCodec
     {
         return message switch
         {
+            PartyRaceHelloMessage typed => Encode(PartyRaceMessageKind.PartyRaceHello, typed),
             RoomJoinMessage typed => Encode(PartyRaceMessageKind.RoomJoin, typed),
             TeamUpdateMessage typed => Encode(PartyRaceMessageKind.TeamUpdate, typed),
             ReadyUpdateMessage typed => Encode(PartyRaceMessageKind.ReadyUpdate, typed),
@@ -41,6 +43,7 @@ public static class PartyRaceMessageCodec
     {
         return encoded.Kind switch
         {
+            PartyRaceMessageKind.PartyRaceHello => Decode<PartyRaceHelloMessage>(encoded.PayloadJson),
             PartyRaceMessageKind.RoomJoin => Decode<RoomJoinMessage>(encoded.PayloadJson),
             PartyRaceMessageKind.TeamUpdate => Decode<TeamUpdateMessage>(encoded.PayloadJson),
             PartyRaceMessageKind.ReadyUpdate => Decode<ReadyUpdateMessage>(encoded.PayloadJson),

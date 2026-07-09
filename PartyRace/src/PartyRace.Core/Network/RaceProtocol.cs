@@ -4,6 +4,17 @@ namespace PartyRace.Core.Network;
 
 public abstract record RaceMessage(string RoomId, string SenderPlayerId, DateTimeOffset SentAt);
 
+public sealed record PartyRaceHelloMessage(
+    string RoomId,
+    string SenderPlayerId,
+    DateTimeOffset SentAt,
+    string NetGameType,
+    string LobbyId,
+    string GameBuild,
+    string ModVersion,
+    int ProtocolVersion)
+    : RaceMessage(RoomId, SenderPlayerId, SentAt);
+
 public sealed record RoomJoinMessage(string RoomId, string SenderPlayerId, DateTimeOffset SentAt, RacePlayer Player)
     : RaceMessage(RoomId, SenderPlayerId, SentAt);
 
