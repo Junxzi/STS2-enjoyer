@@ -1,12 +1,12 @@
 using MegaCrit.Sts2.Core.Multiplayer.Game;
+using PartyRace.Core.Network;
 using PartyRace.Sts2Adapter;
-using System.Runtime.CompilerServices;
 
 namespace PartyRace.Mod;
 
 internal static class PartyRaceSts2Context
 {
-    private static Sts2TransportAdapter? s_transport;
+    private static MessageHandlerDelegate<PartyRaceNetEnvelope>? s_messageHandler;
 
     public static INetGameService? NetService { get; private set; }
     public static string LastCaptureSource { get; private set; } = "none";
@@ -33,7 +33,7 @@ internal static class PartyRaceSts2Context
             return;
         }
 
-        s_transport?.Dispose();
+        UnregisterMessageHandler();
         NetService = netService;
         LastCaptureSource = source;
 
@@ -41,22 +41,47 @@ internal static class PartyRaceSts2Context
 
         try
         {
-            InitializeTransportAdapter(netService);
+            s_messageHandler = HandleEnvelope;
+            netService.RegisterMessageHandler(s_messageHandler);
+            PartyRaceLog.Append("Registered Party Race STS2 net message handler.");
         }
         catch (Exception exception)
         {
-            s_transport = null;
-            PartyRaceLog.Append($"Captured net service, but failed to initialize transport adapter: {exception}");
+            s_messageHandler = null;
+            PartyRaceLog.Append($"Captured net service, but failed to register message handler: {exception}");
         }
     }
 
-    [MethodImpl(MethodImplOptions.NoInlining)]
-    private static void InitializeTransportAdapter(INetGameService netService)
+    private static void HandleEnvelope(PartyRaceNetEnvelope envelope, ulong senderId)
     {
-        s_transport = new Sts2TransportAdapter(netService);
-        s_transport.MessageReceived += (message, senderId) =>
+        try
+        {
+            RaceMessage message = envelope.ToMessage();
             PartyRaceLog.Append($"Received Party Race net message kind={message.GetType().Name} sender={senderId} room={message.RoomId}.");
-        PartyRaceLog.Append("Initialized Party Race STS2 transport adapter.");
+        }
+        catch (Exception exception)
+        {
+            PartyRaceLog.Append($"Failed to read Party Race net message from sender={senderId}: {exception}");
+        }
+    }
+
+    private static void UnregisterMessageHandler()
+    {
+        if (NetService is null || s_messageHandler is null)
+        {
+            return;
+        }
+
+        try
+        {
+            NetService.UnregisterMessageHandler(s_messageHandler);
+        }
+        catch (Exception exception)
+        {
+            PartyRaceLog.Append($"Failed to unregister previous Party Race message handler: {exception}");
+        }
+
+        s_messageHandler = null;
     }
 
     private static string TryGetLobbyId(INetGameService netService)
