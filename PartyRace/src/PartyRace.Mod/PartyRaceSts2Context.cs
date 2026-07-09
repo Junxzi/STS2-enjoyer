@@ -15,6 +15,7 @@ internal static class PartyRaceSts2Context
     public static INetGameService? NetService { get; private set; }
     public static object? NetServiceOwner { get; private set; }
     public static bool IsPartyRaceRunArmed { get; private set; }
+    public static string? ArmedRunSeed { get; private set; }
     public static string LastCaptureSource { get; private set; } = "none";
     public static string LocalPlayerId => NetService?.NetId.ToString() ?? "local_host";
     public static string LocalLobbyId => NetService is null ? "local" : TryGetLobbyId(NetService);
@@ -140,7 +141,21 @@ internal static class PartyRaceSts2Context
     public static void ArmPartyRaceRun(string seed)
     {
         IsPartyRaceRunArmed = true;
+        ArmedRunSeed = seed;
         PartyRaceLog.Append($"Armed Party Race local run launch seed={seed}.");
+    }
+
+    public static void ClearPartyRaceRunArm(string reason)
+    {
+        if (!IsPartyRaceRunArmed && string.IsNullOrWhiteSpace(ArmedRunSeed))
+        {
+            return;
+        }
+
+        string seed = ArmedRunSeed ?? "unknown";
+        IsPartyRaceRunArmed = false;
+        ArmedRunSeed = null;
+        PartyRaceLog.Append($"Cleared Party Race local run launch arm seed={seed}: {reason}.");
     }
 
     private static void HandleEnvelope(PartyRaceNetEnvelope envelope, ulong senderId)
