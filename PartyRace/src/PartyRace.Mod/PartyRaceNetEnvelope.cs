@@ -6,7 +6,7 @@ using PartyRace.Core.Network;
 
 namespace PartyRace.Mod;
 
-internal sealed class PartyRaceNetEnvelope : INetMessage
+public sealed class PartyRaceNetEnvelope : INetMessage
 {
     public int ProtocolVersion;
     public int Kind;
@@ -18,6 +18,10 @@ internal sealed class PartyRaceNetEnvelope : INetMessage
     public NetTransferMode Mode => NetTransferMode.Reliable;
     public LogLevel LogLevel => LogLevel.Info;
     public bool ShouldBuffer => BufferForLateJoiners;
+
+    public PartyRaceNetEnvelope()
+    {
+    }
 
     public static PartyRaceNetEnvelope FromMessage(RaceMessage message, bool shouldBroadcast, bool shouldBuffer)
     {
