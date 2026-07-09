@@ -8,8 +8,13 @@ internal static class PartyRaceSts2Context
 {
     private static MessageHandlerDelegate<PartyRaceNetEnvelope>? s_messageHandler;
 
+    public static event Action<RaceMessage, ulong>? MessageReceived;
+
     public static INetGameService? NetService { get; private set; }
     public static string LastCaptureSource { get; private set; } = "none";
+    public static string LocalPlayerId => NetService?.NetId.ToString() ?? "local_host";
+    public static string LocalLobbyId => NetService is null ? "local" : TryGetLobbyId(NetService);
+    public static bool IsHost => NetService?.Type == NetGameType.Host;
 
     public static string StatusText
     {
@@ -63,6 +68,8 @@ internal static class PartyRaceSts2Context
             {
                 PartyRaceLog.Append($"Party Race hello details sender={hello.SenderPlayerId} netType={hello.NetGameType} lobby={hello.LobbyId} gameBuild={hello.GameBuild} mod={hello.ModVersion} protocol={hello.ProtocolVersion}.");
             }
+
+            MessageReceived?.Invoke(message, senderId);
         }
         catch (Exception exception)
         {
@@ -91,6 +98,38 @@ internal static class PartyRaceSts2Context
 
         netService.SendMessage(envelope);
         PartyRaceLog.Append($"Sent Party Race hello netType={hello.NetGameType} lobby={hello.LobbyId} broadcast={envelope.ShouldBroadcast} buffer={envelope.ShouldBuffer}.");
+    }
+
+    public static bool SendToHost(RaceMessage message)
+    {
+        return Send(message, shouldBroadcast: false, shouldBuffer: false);
+    }
+
+    public static bool BroadcastFromHost(RaceMessage message, bool shouldBuffer = true)
+    {
+        return Send(message, shouldBroadcast: true, shouldBuffer: shouldBuffer);
+    }
+
+    public static bool Send(RaceMessage message, bool shouldBroadcast, bool shouldBuffer)
+    {
+        if (NetService is null)
+        {
+            PartyRaceLog.Append($"Skipped Party Race net send kind={message.GetType().Name}: STS2 net service is not captured.");
+            return false;
+        }
+
+        try
+        {
+            PartyRaceNetEnvelope envelope = PartyRaceNetEnvelope.FromMessage(message, shouldBroadcast, shouldBuffer);
+            NetService.SendMessage(envelope);
+            PartyRaceLog.Append($"Sent Party Race net message kind={message.GetType().Name} room={message.RoomId} broadcast={shouldBroadcast} buffer={shouldBuffer}.");
+            return true;
+        }
+        catch (Exception exception)
+        {
+            PartyRaceLog.Append($"Failed to send Party Race net message kind={message.GetType().Name}: {exception}");
+            return false;
+        }
     }
 
     private static void UnregisterMessageHandler()

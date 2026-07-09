@@ -186,9 +186,19 @@ static void TestHeartbeatStatus()
 static void TestPartyRaceNetworkCodec()
 {
     DateTimeOffset sentAt = new(2026, 7, 9, 0, 0, 0, TimeSpan.Zero);
+    RaceTeam team = new()
+    {
+        TeamId = "team_01",
+        TeamName = "Host Team",
+        TeamLeaderPlayerId = "host",
+        ReadyState = TeamReadyState.Ready
+    };
+    team.PlayerIds.Add("host");
+
     RaceMessage[] messages =
     [
         new PartyRaceHelloMessage("room-1", "host", sentAt, "Host", "lobby-1", "v0.107.1", "0.1.0", 1),
+        new TeamUpdateMessage("room-1", "host", sentAt, [team]),
         new ReadyUpdateMessage("room-1", "host", sentAt, "host", true, "ironclad"),
         new RaceStartMessage("room-1", "host", sentAt, "K9M2AB8Q4Z7L", "ABCD-1234-FEED"),
         new TeamProgressUpdateMessage(

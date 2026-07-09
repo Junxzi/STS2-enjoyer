@@ -3,13 +3,13 @@ using PartyRace.Core.Compatibility;
 using PartyRace.Core.Core;
 using PartyRace.Core.Domain;
 using PartyRace.Core.Hub;
+using PartyRace.Core.Network;
 
 namespace PartyRace.Mod;
 
 public sealed partial class PartyRaceMenuView : Control
 {
     private const string MenuNodeName = "PartyRaceMenuView";
-    private const string HostPlayerId = "local_host";
     private const string RivalPlayerId = "demo_rival";
 
     private readonly ManualClock _clock = new(DateTimeOffset.UtcNow);
@@ -35,6 +35,7 @@ public sealed partial class PartyRaceMenuView : Control
             _configValidator,
             _seedService,
             new CompatibilityService());
+        PartyRaceSts2Context.MessageReceived += OnPartyRaceMessageReceived;
     }
 
     public static PartyRaceMenuView EnsureAttached(Control parent)
@@ -106,7 +107,7 @@ public sealed partial class PartyRaceMenuView : Control
         Button createButton = AddButton("Create local room", 424, 100, 220, 36);
         createButton.Pressed += CreateLocalRoom;
 
-        _readyButton = AddButton("Ready host", 424, 146, 220, 36);
+        _readyButton = AddButton("Toggle ready", 424, 146, 220, 36);
         _readyButton.Pressed += ToggleHostReady;
 
         _addRivalButton = AddButton("Add demo rival", 424, 192, 220, 36);
@@ -181,14 +182,16 @@ public sealed partial class PartyRaceMenuView : Control
                 ProtocolVersion = PartyRaceConstants.ProtocolVersion
             };
 
-            RacePlayer host = CreatePlayer(HostPlayerId, "Host");
+            string localPlayerId = PartyRaceSts2Context.LocalPlayerId;
+            RacePlayer host = CreatePlayer(localPlayerId, PartyRaceSts2Context.IsHost ? "Host" : "Client");
             _room = _roomManager.CreateRoom(
-                $"local-{DateTimeOffset.UtcNow:yyyyMMddHHmmss}",
+                $"sts2:{PartyRaceSts2Context.LocalLobbyId}",
                 ReadRoomName(),
                 host,
                 config);
-            _roomManager.CreateTeam(_room, HostPlayerId, "Host Team");
+            _roomManager.CreateTeam(_room, localPlayerId, PartyRaceSts2Context.IsHost ? "Host Team" : "Client Team");
             PartyRaceLog.Append($"Created local Party Race room seed={seed}.");
+            PublishTeamUpdate();
             Refresh("Local room created.");
         }
         catch (Exception exception)
@@ -207,10 +210,12 @@ public sealed partial class PartyRaceMenuView : Control
 
         try
         {
-            RacePlayer host = _room.GetPlayer(HostPlayerId);
-            bool nextReady = !host.IsReady;
-            _roomManager.SetPlayerReady(_room, HostPlayerId, host.CharacterId ?? "ironclad", nextReady);
+            RacePlayer localPlayer = EnsureLocalPlayerInRoom();
+            bool nextReady = !localPlayer.IsReady;
+            _roomManager.SetPlayerReady(_room, localPlayer.PlayerId, localPlayer.CharacterId ?? "ironclad", nextReady);
             PartyRaceLog.Append($"Host ready changed ready={nextReady}.");
+            PublishReadyUpdate(localPlayer.PlayerId, localPlayer.CharacterId ?? "ironclad", nextReady);
+            PublishTeamUpdate();
             Refresh(nextReady ? "Host is ready." : "Host is not ready.");
         }
         catch (Exception exception)
@@ -239,6 +244,8 @@ public sealed partial class PartyRaceMenuView : Control
             _roomManager.CreateTeam(_room, RivalPlayerId, "Rival Team");
             _roomManager.SetPlayerReady(_room, RivalPlayerId, "silent", true);
             PartyRaceLog.Append("Added ready demo rival.");
+            PublishReadyUpdate(RivalPlayerId, "silent", isReady: true);
+            PublishTeamUpdate();
             Refresh("Demo rival added and readied.");
         }
         catch (Exception exception)
@@ -259,6 +266,7 @@ public sealed partial class PartyRaceMenuView : Control
         {
             RaceStartPlan startPlan = _roomManager.StartRace(_room);
             PartyRaceLog.Append($"Local Party Race started seed={startPlan.RunSeed} hash={startPlan.RaceConfigHash}.");
+            PublishRaceStart(startPlan);
             Refresh($"Race start plan created. Seed {startPlan.RunSeed}");
         }
         catch (Exception exception)
@@ -300,6 +308,197 @@ public sealed partial class PartyRaceMenuView : Control
             GameBuild = "local-sts2",
             GameplayModHash = "local-party-race"
         };
+    }
+
+    private RacePlayer EnsureLocalPlayerInRoom()
+    {
+        if (_room is null)
+        {
+            throw new InvalidOperationException("Room is not created.");
+        }
+
+        string localPlayerId = PartyRaceSts2Context.LocalPlayerId;
+        RacePlayer? localPlayer = _room.Players.FirstOrDefault(player => player.PlayerId == localPlayerId);
+        if (localPlayer is null)
+        {
+            localPlayer = CreatePlayer(localPlayerId, PartyRaceSts2Context.IsHost ? "Host" : "Client");
+            _roomManager.JoinRoom(_room, localPlayer);
+        }
+
+        if (localPlayer.TeamId is null)
+        {
+            _roomManager.CreateTeam(_room, localPlayerId, PartyRaceSts2Context.IsHost ? "Host Team" : "Client Team");
+        }
+
+        return localPlayer;
+    }
+
+    private void PublishReadyUpdate(string playerId, string characterId, bool isReady)
+    {
+        if (_room is null)
+        {
+            return;
+        }
+
+        ReadyUpdateMessage message = new(_room.RoomId, PartyRaceSts2Context.LocalPlayerId, DateTimeOffset.UtcNow, playerId, isReady, characterId);
+        SendMessageForCurrentRole(message, shouldBuffer: true);
+    }
+
+    private void PublishTeamUpdate()
+    {
+        if (_room is null)
+        {
+            return;
+        }
+
+        TeamUpdateMessage message = new(_room.RoomId, PartyRaceSts2Context.LocalPlayerId, DateTimeOffset.UtcNow, _room.Teams.ToArray());
+        SendMessageForCurrentRole(message, shouldBuffer: true);
+    }
+
+    private void PublishRaceStart(RaceStartPlan startPlan)
+    {
+        RaceStartMessage message = new(startPlan.RoomId, PartyRaceSts2Context.LocalPlayerId, DateTimeOffset.UtcNow, startPlan.RunSeed, startPlan.RaceConfigHash);
+        SendMessageForCurrentRole(message, shouldBuffer: true);
+    }
+
+    private static void SendMessageForCurrentRole(RaceMessage message, bool shouldBuffer)
+    {
+        if (PartyRaceSts2Context.IsHost)
+        {
+            PartyRaceSts2Context.BroadcastFromHost(message, shouldBuffer);
+        }
+        else
+        {
+            PartyRaceSts2Context.SendToHost(message);
+        }
+    }
+
+    private void OnPartyRaceMessageReceived(RaceMessage message, ulong senderId)
+    {
+        if (message.SenderPlayerId == PartyRaceSts2Context.LocalPlayerId)
+        {
+            return;
+        }
+
+        try
+        {
+            switch (message)
+            {
+                case TeamUpdateMessage teamUpdate:
+                    ApplyTeamUpdate(teamUpdate, senderId);
+                    break;
+                case ReadyUpdateMessage readyUpdate:
+                    ApplyReadyUpdate(readyUpdate, senderId);
+                    break;
+                case RaceStartMessage raceStart:
+                    ApplyRaceStart(raceStart, senderId);
+                    break;
+            }
+        }
+        catch (Exception exception)
+        {
+            PartyRaceLog.Append($"Failed to apply Party Race message kind={message.GetType().Name}: {exception}");
+        }
+    }
+
+    private void ApplyTeamUpdate(TeamUpdateMessage message, ulong senderId)
+    {
+        RaceRoom room = EnsureNetworkRoom(message.RoomId, message.SenderPlayerId);
+        room.Teams.Clear();
+        foreach (RaceTeam incoming in message.Teams)
+        {
+            RaceTeam team = new()
+            {
+                TeamId = incoming.TeamId,
+                TeamName = incoming.TeamName,
+                TeamLeaderPlayerId = incoming.TeamLeaderPlayerId,
+                ReadyState = incoming.ReadyState,
+                RunState = incoming.RunState,
+                LatestProgress = incoming.LatestProgress
+            };
+
+            foreach (string playerId in incoming.PlayerIds)
+            {
+                EnsureNetworkPlayer(room, playerId);
+                team.PlayerIds.Add(playerId);
+                room.GetPlayer(playerId).TeamId = team.TeamId;
+            }
+
+            room.Teams.Add(team);
+        }
+
+        room.EventLog.Add(new RaceEvent(_clock.UtcNow, "NetworkTeamUpdate", $"Team update received from {senderId}."));
+        PartyRaceLog.Append($"Applied TeamUpdate from sender={senderId} teams={room.Teams.Count} room={message.RoomId}.");
+        Refresh("Network team update received.");
+    }
+
+    private void ApplyReadyUpdate(ReadyUpdateMessage message, ulong senderId)
+    {
+        RaceRoom room = EnsureNetworkRoom(message.RoomId, message.SenderPlayerId);
+        RacePlayer player = EnsureNetworkPlayer(room, message.PlayerId);
+        player.CharacterId = message.CharacterId;
+        player.IsReady = message.IsReady;
+        if (player.TeamId is not null)
+        {
+            RaceTeam team = room.GetTeam(player.TeamId);
+            team.ReadyState = team.PlayerIds.Count > 0 && team.PlayerIds.All(id => room.GetPlayer(id).IsReady)
+                ? TeamReadyState.Ready
+                : TeamReadyState.NotReady;
+        }
+
+        room.EventLog.Add(new RaceEvent(_clock.UtcNow, "NetworkReadyUpdate", $"Player '{message.PlayerId}' ready={message.IsReady} from {senderId}."));
+        PartyRaceLog.Append($"Applied ReadyUpdate from sender={senderId} player={message.PlayerId} ready={message.IsReady} room={message.RoomId}.");
+        Refresh("Network ready update received.");
+    }
+
+    private void ApplyRaceStart(RaceStartMessage message, ulong senderId)
+    {
+        RaceRoom room = EnsureNetworkRoom(message.RoomId, message.SenderPlayerId);
+        room.State = RaceState.Running;
+        room.StartedAt = _clock.UtcNow;
+        room.EventLog.Add(new RaceEvent(_clock.UtcNow, "NetworkRaceStart", $"Race start received seed={message.RunSeed} from {senderId}."));
+        PartyRaceLog.Append($"Applied RaceStart from sender={senderId} seed={message.RunSeed} hash={message.RaceConfigHash} room={message.RoomId}.");
+        Refresh($"Network race start received. Seed {message.RunSeed}");
+    }
+
+    private RaceRoom EnsureNetworkRoom(string roomId, string hostPlayerId)
+    {
+        if (_room is not null && string.Equals(_room.RoomId, roomId, StringComparison.Ordinal))
+        {
+            return _room;
+        }
+
+        _room = new RaceRoom
+        {
+            RoomId = roomId,
+            RoomName = "Network Party Race",
+            HostPlayerId = hostPlayerId,
+            CreatedAt = _clock.UtcNow,
+            Config = RaceConfig.Default() with
+            {
+                GameBuild = "local-sts2",
+                GameBranch = "network",
+                GameplayModHash = "local-party-race",
+                PartyRaceModVersion = PartyRaceConstants.ModVersion,
+                ProtocolVersion = PartyRaceConstants.ProtocolVersion
+            }
+        };
+        EnsureNetworkPlayer(_room, hostPlayerId);
+        PartyRaceLog.Append($"Created network Party Race room mirror room={roomId} host={hostPlayerId}.");
+        return _room;
+    }
+
+    private static RacePlayer EnsureNetworkPlayer(RaceRoom room, string playerId)
+    {
+        RacePlayer? player = room.Players.FirstOrDefault(existing => existing.PlayerId == playerId);
+        if (player is not null)
+        {
+            return player;
+        }
+
+        player = CreatePlayer(playerId, playerId == PartyRaceSts2Context.LocalPlayerId ? "Local" : $"Player {playerId}");
+        room.Players.Add(player);
+        return player;
     }
 
     private void Refresh(string? status = null)
