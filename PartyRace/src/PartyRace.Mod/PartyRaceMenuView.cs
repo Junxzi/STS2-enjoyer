@@ -273,6 +273,7 @@ public sealed partial class PartyRaceMenuView : Control
             PartyRaceLog.Append($"Start race requested. {BuildStartGateText()}");
             RaceStartPlan startPlan = _roomManager.StartRace(_room);
             PartyRaceLog.Append($"Local Party Race started seed={startPlan.RunSeed} hash={startPlan.RaceConfigHash}.");
+            PartyRaceSts2Context.ArmPartyRaceRun(startPlan.RunSeed);
             string seedSyncStatus = SyncSts2LobbySeed(startPlan.RunSeed);
             PublishRaceStart(startPlan);
             Refresh($"Race start plan created. Seed {startPlan.RunSeed}{System.Environment.NewLine}{seedSyncStatus}");
@@ -482,6 +483,7 @@ public sealed partial class PartyRaceMenuView : Control
         RaceRoom room = EnsureNetworkRoom(message.RoomId, message.SenderPlayerId);
         room.State = RaceState.Running;
         room.StartedAt = _clock.UtcNow;
+        PartyRaceSts2Context.ArmPartyRaceRun(message.RunSeed);
         if (_seedInput is not null)
         {
             _seedInput.Text = message.RunSeed;
@@ -502,6 +504,7 @@ public sealed partial class PartyRaceMenuView : Control
 
         _lastObservedSts2RunSeed = seed;
         _lastNetworkStatus = $"STS2 run began with seed {seed} at {DateTimeOffset.Now:HH:mm:ss}.";
+        PartyRaceSts2Context.ArmPartyRaceRun(seed);
 
         if (_seedInput is not null)
         {

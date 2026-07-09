@@ -218,10 +218,79 @@ public static class PartyRaceMod
             }
 
             PartyRaceSts2Context.ObserveSts2RunBegin(seed, __instance.GetType().FullName ?? __instance.GetType().Name);
+            TryStartPartyRaceLocalRun(__instance, __args, seed);
         }
         catch (Exception exception)
         {
             PartyRaceLog.Append($"Failed to observe STS2 BeginRun: {exception}");
+        }
+    }
+
+    private static void TryStartPartyRaceLocalRun(object listener, object[] args, string seed)
+    {
+        if (!PartyRaceSts2Context.IsPartyRaceRunArmed)
+        {
+            PartyRaceLog.Append($"Skipped Party Race local run launch seed={seed}: Party Race is not armed.");
+            return;
+        }
+
+        if (args.Length < 2)
+        {
+            PartyRaceLog.Append($"Skipped Party Race local run launch seed={seed}: BeginRun acts argument was missing.");
+            return;
+        }
+
+        object acts = args[1];
+        MethodInfo? method = listener.GetType()
+            .GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+            .FirstOrDefault(method =>
+            {
+                if (method.Name != "StartNewSingleplayerRun")
+                {
+                    return false;
+                }
+
+                ParameterInfo[] parameters = method.GetParameters();
+                return parameters.Length == 2 &&
+                       parameters[0].ParameterType == typeof(string) &&
+                       parameters[1].ParameterType.IsInstanceOfType(acts);
+            });
+
+        if (method is null)
+        {
+            PartyRaceLog.Append($"Skipped Party Race local run launch seed={seed}: {listener.GetType().FullName} does not expose StartNewSingleplayerRun(string, acts).");
+            return;
+        }
+
+        try
+        {
+            object? result = method.Invoke(listener, [seed, acts]);
+            PartyRaceLog.Append($"Invoked Party Race local singleplayer run seed={seed} via {listener.GetType().FullName}.{method.Name}.");
+            if (result is Task task)
+            {
+                _ = LogLocalRunLaunchTask(task, seed);
+            }
+        }
+        catch (TargetInvocationException exception) when (exception.InnerException is not null)
+        {
+            PartyRaceLog.Append($"Failed to launch Party Race local singleplayer run seed={seed}: {exception.InnerException}");
+        }
+        catch (Exception exception)
+        {
+            PartyRaceLog.Append($"Failed to launch Party Race local singleplayer run seed={seed}: {exception}");
+        }
+    }
+
+    private static async Task LogLocalRunLaunchTask(Task task, string seed)
+    {
+        try
+        {
+            await task;
+            PartyRaceLog.Append($"Party Race local singleplayer run launch task completed seed={seed}.");
+        }
+        catch (Exception exception)
+        {
+            PartyRaceLog.Append($"Party Race local singleplayer run launch task failed seed={seed}: {exception}");
         }
     }
 
