@@ -129,10 +129,10 @@ public static class PartyRaceMod
     private static void InstallBeginRunPatches()
     {
         Harmony harmony = new(HarmonyId);
-        MethodInfo? postfixMethod = AccessTools.Method(typeof(PartyRaceMod), nameof(OnSts2BeginRun));
-        if (postfixMethod is null)
+        MethodInfo? prefixMethod = AccessTools.Method(typeof(PartyRaceMod), nameof(OnSts2BeginRun));
+        if (prefixMethod is null)
         {
-            PartyRaceLog.Append("Could not find STS2 BeginRun postfix.");
+            PartyRaceLog.Append("Could not find STS2 BeginRun prefix.");
             return;
         }
 
@@ -148,8 +148,8 @@ public static class PartyRaceMod
             foreach (MethodInfo method in AccessTools.GetDeclaredMethods(listenerType)
                          .Where(method => method.Name == "BeginRun" && FirstParameterIsString(method)))
             {
-                harmony.Patch(method, postfix: new HarmonyMethod(postfixMethod));
-                PartyRaceLog.Append($"Installed STS2 BeginRun seed capture patch: {listenerType.FullName}.{method.Name}.");
+                harmony.Patch(method, prefix: new HarmonyMethod(prefixMethod));
+                PartyRaceLog.Append($"Installed STS2 BeginRun seed capture prefix patch: {listenerType.FullName}.{method.Name}.");
             }
         }
     }
@@ -207,37 +207,52 @@ public static class PartyRaceMod
         }
     }
 
-    private static void OnSts2BeginRun(object __instance, object[] __args)
+    private static bool OnSts2BeginRun(object __instance, object[] __args)
     {
         try
         {
             if (__args.Length == 0 || __args[0] is not string seed || string.IsNullOrWhiteSpace(seed))
             {
                 PartyRaceLog.Append($"Skipped STS2 BeginRun seed capture from {__instance.GetType().FullName}: seed argument was missing.");
-                return;
+                return true;
             }
 
+            bool wasPartyRaceRunArmed = PartyRaceSts2Context.IsPartyRaceRunArmed;
             PartyRaceSts2Context.ObserveSts2RunBegin(seed, __instance.GetType().FullName ?? __instance.GetType().Name);
-            TryStartPartyRaceLocalRun(__instance, __args, seed);
+            if (!wasPartyRaceRunArmed)
+            {
+                PartyRaceLog.Append($"Allowed STS2 BeginRun seed={seed}: Party Race was not armed before BeginRun.");
+                return true;
+            }
+
+            if (!TryStartPartyRaceLocalRun(__instance, __args, seed))
+            {
+                PartyRaceLog.Append($"Allowed STS2 BeginRun seed={seed}: Party Race local run launch did not start.");
+                return true;
+            }
+
+            PartyRaceLog.Append($"Skipped original STS2 BeginRun seed={seed}: Party Race local singleplayer run was launched.");
+            return false;
         }
         catch (Exception exception)
         {
             PartyRaceLog.Append($"Failed to observe STS2 BeginRun: {exception}");
+            return true;
         }
     }
 
-    private static void TryStartPartyRaceLocalRun(object listener, object[] args, string seed)
+    private static bool TryStartPartyRaceLocalRun(object listener, object[] args, string seed)
     {
         if (!PartyRaceSts2Context.IsPartyRaceRunArmed)
         {
             PartyRaceLog.Append($"Skipped Party Race local run launch seed={seed}: Party Race is not armed.");
-            return;
+            return false;
         }
 
         if (args.Length < 2)
         {
             PartyRaceLog.Append($"Skipped Party Race local run launch seed={seed}: BeginRun acts argument was missing.");
-            return;
+            return false;
         }
 
         object acts = args[1];
@@ -259,7 +274,7 @@ public static class PartyRaceMod
         if (method is null)
         {
             PartyRaceLog.Append($"Skipped Party Race local run launch seed={seed}: {listener.GetType().FullName} does not expose StartNewSingleplayerRun(string, acts).");
-            return;
+            return false;
         }
 
         try
@@ -270,14 +285,18 @@ public static class PartyRaceMod
             {
                 _ = LogLocalRunLaunchTask(task, seed);
             }
+
+            return true;
         }
         catch (TargetInvocationException exception) when (exception.InnerException is not null)
         {
             PartyRaceLog.Append($"Failed to launch Party Race local singleplayer run seed={seed}: {exception.InnerException}");
+            return false;
         }
         catch (Exception exception)
         {
             PartyRaceLog.Append($"Failed to launch Party Race local singleplayer run seed={seed}: {exception}");
+            return false;
         }
     }
 
