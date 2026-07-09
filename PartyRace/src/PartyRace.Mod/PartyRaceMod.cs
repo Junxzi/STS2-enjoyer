@@ -33,6 +33,7 @@ public static class PartyRaceMod
         "MegaCrit.Sts2.Core.Nodes.Screens.MainMenu.NMultiplayerHostSubmenu"
     ];
     private const string ButtonNodeName = "PartyRaceMainMenuButton";
+    private const string ForceCustomButtonNodeName = "PartyRaceForceCustomButton";
     private static bool s_dependencyResolverInstalled;
 
     public static void Initialize()
@@ -384,11 +385,100 @@ public static class PartyRaceMod
             TryInvoke(customButton, "SetVisuallyLocked", false);
             TryInvoke(customButton, "SetLocked", false);
             TryInvoke(customButton, "SetVisible", true);
+            AddForceCustomButton(__instance, customButton);
             PartyRaceLog.Append($"Forced custom button unlocked for {__instance.GetType().FullName}.");
         }
         catch (Exception exception)
         {
             PartyRaceLog.Append($"Failed to force custom button unlocked for {__instance.GetType().FullName}: {exception}");
+        }
+    }
+
+    private static void AddForceCustomButton(object owner, object customButton)
+    {
+        if (owner is not Control ownerControl)
+        {
+            PartyRaceLog.Append($"Skipped force custom overlay for {owner.GetType().FullName}: owner was not a Godot Control.");
+            return;
+        }
+
+        if (HasDirectChild(ownerControl, ForceCustomButtonNodeName))
+        {
+            return;
+        }
+
+        Vector2 position = new(600, 120);
+        Vector2 size = new(240, 360);
+        if (customButton is Control customControl)
+        {
+            position = customControl.Position;
+            size = customControl.Size;
+            if (size.X <= 0 || size.Y <= 0)
+            {
+                size = customControl.CustomMinimumSize;
+            }
+        }
+
+        if (size.X <= 0 || size.Y <= 0)
+        {
+            size = new Vector2(240, 360);
+        }
+
+        Button forceButton = new()
+        {
+            Name = ForceCustomButtonNodeName,
+            Text = "CUSTOM",
+            Position = position,
+            Size = size,
+            CustomMinimumSize = size,
+            ZIndex = 5000,
+            MouseFilter = Control.MouseFilterEnum.Stop,
+            Modulate = new Color(1f, 1f, 1f, 0.85f)
+        };
+        forceButton.Pressed += () => InvokeCustomRunOwner(owner);
+
+        ownerControl.AddChild(forceButton);
+        PartyRaceLog.Append($"Added force custom overlay for {owner.GetType().FullName} at {position} size={size}.");
+    }
+
+    private static void InvokeCustomRunOwner(object owner)
+    {
+        try
+        {
+            MethodInfo? method = owner.GetType()
+                .GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                .FirstOrDefault(method =>
+                    (method.Name == "OpenCustomScreen" || method.Name == "OnCustomPressed") &&
+                    method.GetParameters().Length == 1);
+
+            if (method is not null)
+            {
+                method.Invoke(owner, [null]);
+                PartyRaceLog.Append($"Invoked custom run owner method {owner.GetType().FullName}.{method.Name} from Party Race overlay.");
+                return;
+            }
+
+            MethodInfo? startHostMethod = owner.GetType()
+                .GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                .FirstOrDefault(method => method.Name == "StartHost" && method.GetParameters().Length == 1);
+            ParameterInfo? parameter = startHostMethod?.GetParameters().FirstOrDefault();
+            if (startHostMethod is not null && parameter?.ParameterType.IsEnum == true)
+            {
+                object customMode = Enum.Parse(parameter.ParameterType, "Custom");
+                startHostMethod.Invoke(owner, [customMode]);
+                PartyRaceLog.Append($"Invoked custom host method {owner.GetType().FullName}.{startHostMethod.Name} from Party Race overlay.");
+                return;
+            }
+
+            PartyRaceLog.Append($"Could not find a custom run method on {owner.GetType().FullName}.");
+        }
+        catch (TargetInvocationException exception) when (exception.InnerException is not null)
+        {
+            PartyRaceLog.Append($"Failed to invoke custom run owner for {owner.GetType().FullName}: {exception.InnerException}");
+        }
+        catch (Exception exception)
+        {
+            PartyRaceLog.Append($"Failed to invoke custom run owner for {owner.GetType().FullName}: {exception}");
         }
     }
 
