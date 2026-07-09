@@ -142,21 +142,32 @@ string FormatTypeDefinition(TypeDefinitionHandle handle)
 void RunReflectionInspection(string targetAssemblyPath, string nameFilter)
 {
     string? targetDirectory = Path.GetDirectoryName(targetAssemblyPath);
+    string[] resolveDirectories = args
+        .Where(arg => arg.StartsWith("--resolve=", StringComparison.Ordinal))
+        .Select(arg => arg["--resolve=".Length..])
+        .Prepend(targetDirectory)
+        .Where(path => !string.IsNullOrWhiteSpace(path))
+        .Cast<string>()
+        .ToArray();
+
     AppDomain.CurrentDomain.AssemblyResolve += (_, args) =>
     {
-        if (string.IsNullOrWhiteSpace(targetDirectory))
-        {
-            return null;
-        }
-
         string? assemblyName = new AssemblyName(args.Name).Name;
         if (string.IsNullOrWhiteSpace(assemblyName))
         {
             return null;
         }
 
-        string candidatePath = Path.Combine(targetDirectory, $"{assemblyName}.dll");
-        return File.Exists(candidatePath) ? Assembly.LoadFrom(candidatePath) : null;
+        foreach (string resolveDirectory in resolveDirectories)
+        {
+            string candidatePath = Path.Combine(resolveDirectory, $"{assemblyName}.dll");
+            if (File.Exists(candidatePath))
+            {
+                return Assembly.LoadFrom(candidatePath);
+            }
+        }
+
+        return null;
     };
 
     Assembly assembly = Assembly.LoadFrom(targetAssemblyPath);
@@ -176,6 +187,11 @@ void RunReflectionInspection(string targetAssemblyPath, string nameFilter)
         if (type.BaseType is not null)
         {
             Console.WriteLine($"  BASE {FormatType(type.BaseType)}");
+        }
+
+        foreach (Type genericArgument in type.GetGenericArguments())
+        {
+            Console.WriteLine($"  GENERIC {FormatGenericParameter(genericArgument)}");
         }
 
         foreach (Type interfaceType in type.GetInterfaces().OrderBy(FormatType))
@@ -246,4 +262,10 @@ string FormatType(Type type)
     }
 
     return $"{name}<{string.Join(", ", type.GetGenericArguments().Select(FormatType))}>";
+}
+
+string FormatGenericParameter(Type type)
+{
+    string constraints = string.Join(", ", type.GetGenericParameterConstraints().Select(FormatType));
+    return $"{type.Name} attrs={type.GenericParameterAttributes} constraints=[{constraints}]";
 }

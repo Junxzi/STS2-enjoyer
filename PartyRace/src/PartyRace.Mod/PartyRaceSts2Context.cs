@@ -1,6 +1,5 @@
 using MegaCrit.Sts2.Core.Multiplayer.Game;
 using PartyRace.Core.Network;
-using PartyRace.Sts2Adapter;
 
 namespace PartyRace.Mod;
 
