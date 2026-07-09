@@ -27,6 +27,7 @@ public sealed partial class PartyRaceMenuView : Control
     private Button? _addRivalButton;
     private Button? _startButton;
     private RaceRoom? _room;
+    private string _lastNetworkStatus = "No Party Race network messages yet.";
 
     public PartyRaceMenuView()
     {
@@ -96,7 +97,7 @@ public sealed partial class PartyRaceMenuView : Control
         AddChild(panel);
 
         AddLabel("Party Race", 24, 18, 620, 36);
-        AddLabel("Local room proof. Networking capture is shown when an STS2 lobby exists.", 24, 58, 620, 28);
+        AddLabel("STS2 lobby sync proof. Ready and team updates mirror over the active multiplayer lobby.", 24, 58, 620, 28);
 
         AddLabel("Room", 24, 104, 120, 28);
         _roomNameInput = AddLineEdit("Local Party Race", 144, 100, 260, 36);
@@ -104,7 +105,7 @@ public sealed partial class PartyRaceMenuView : Control
         AddLabel("Seed", 24, 150, 120, 28);
         _seedInput = AddLineEdit(_seedService.GenerateSharedRandomSeed(), 144, 146, 260, 36);
 
-        Button createButton = AddButton("Create local room", 424, 100, 220, 36);
+        Button createButton = AddButton("Create/sync room", 424, 100, 220, 36);
         createButton.Pressed += CreateLocalRoom;
 
         _readyButton = AddButton("Toggle ready", 424, 146, 220, 36);
@@ -123,9 +124,9 @@ public sealed partial class PartyRaceMenuView : Control
             PartyRaceLog.Append("Party Race menu closed.");
         };
 
-        _statusLabel = AddLabel("Create a local room to begin.", 24, 204, 360, 56);
-        _teamsLabel = AddLabel("Teams: none", 24, 276, 620, 78);
-        _eventsLabel = AddLabel("Events: none", 24, 368, 360, 92);
+        _statusLabel = AddLabel("Create/sync a room to begin.", 24, 204, 380, 76);
+        _teamsLabel = AddLabel("Teams: none", 24, 294, 620, 72);
+        _eventsLabel = AddLabel("Events: none", 24, 380, 360, 96);
         Refresh();
     }
 
@@ -192,7 +193,7 @@ public sealed partial class PartyRaceMenuView : Control
             _roomManager.CreateTeam(_room, localPlayerId, PartyRaceSts2Context.IsHost ? "Host Team" : "Client Team");
             PartyRaceLog.Append($"Created local Party Race room seed={seed}.");
             PublishTeamUpdate();
-            Refresh("Local room created.");
+            Refresh("Local room created and published.");
         }
         catch (Exception exception)
         {
@@ -365,11 +366,17 @@ public sealed partial class PartyRaceMenuView : Control
     {
         if (PartyRaceSts2Context.IsHost)
         {
-            PartyRaceSts2Context.BroadcastFromHost(message, shouldBuffer);
+            if (PartyRaceSts2Context.BroadcastFromHost(message, shouldBuffer))
+            {
+                PartyRaceLog.Append($"Published {message.GetType().Name} as host for room={message.RoomId}.");
+            }
         }
         else
         {
-            PartyRaceSts2Context.SendToHost(message);
+            if (PartyRaceSts2Context.SendToHost(message))
+            {
+                PartyRaceLog.Append($"Published {message.GetType().Name} to host for room={message.RoomId}.");
+            }
         }
     }
 
@@ -385,13 +392,20 @@ public sealed partial class PartyRaceMenuView : Control
             switch (message)
             {
                 case TeamUpdateMessage teamUpdate:
+                    _lastNetworkStatus = $"Received TeamUpdate from {senderId} at {DateTimeOffset.Now:HH:mm:ss}.";
                     ApplyTeamUpdate(teamUpdate, senderId);
                     break;
                 case ReadyUpdateMessage readyUpdate:
+                    _lastNetworkStatus = $"Received ReadyUpdate from {senderId} at {DateTimeOffset.Now:HH:mm:ss}.";
                     ApplyReadyUpdate(readyUpdate, senderId);
                     break;
                 case RaceStartMessage raceStart:
+                    _lastNetworkStatus = $"Received RaceStart from {senderId} at {DateTimeOffset.Now:HH:mm:ss}.";
                     ApplyRaceStart(raceStart, senderId);
+                    break;
+                case PartyRaceHelloMessage:
+                    _lastNetworkStatus = $"Received Hello from {senderId} at {DateTimeOffset.Now:HH:mm:ss}.";
+                    Refresh("Network hello received.");
                     break;
             }
         }
@@ -548,10 +562,10 @@ public sealed partial class PartyRaceMenuView : Control
     {
         if (_room is null)
         {
-            return $"No room. Create a local room to begin.{System.Environment.NewLine}{PartyRaceSts2Context.StatusText}";
+            return $"No room. Create/sync a room to begin.{System.Environment.NewLine}{PartyRaceSts2Context.StatusText}{System.Environment.NewLine}{_lastNetworkStatus}";
         }
 
-        return $"Room {_room.RoomName} | State {_room.State} | Hash {_room.Config.RaceConfigHash}{System.Environment.NewLine}{PartyRaceSts2Context.StatusText}";
+        return $"Room {_room.RoomName} | State {_room.State} | Hash {_room.Config.RaceConfigHash}{System.Environment.NewLine}{PartyRaceSts2Context.StatusText}{System.Environment.NewLine}{_lastNetworkStatus}";
     }
 
     private string BuildTeamsText()
@@ -566,7 +580,8 @@ public sealed partial class PartyRaceMenuView : Control
             string players = string.Join(", ", team.PlayerIds.Select(id =>
             {
                 RacePlayer player = _room.GetPlayer(id);
-                return player.IsReady ? $"{player.DisplayName}:ready" : $"{player.DisplayName}:not ready";
+                string marker = id == PartyRaceSts2Context.LocalPlayerId ? " local" : string.Empty;
+                return player.IsReady ? $"{player.DisplayName}{marker}:ready" : $"{player.DisplayName}{marker}:not ready";
             }));
             return $"{team.TeamName} [{team.ReadyState}] {players}";
         });
