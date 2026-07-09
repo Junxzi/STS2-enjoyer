@@ -251,11 +251,10 @@ public static class PartyRaceMod
 
         if (args.Length < 2)
         {
-            PartyRaceLog.Append($"Skipped Party Race local run launch seed={seed}: BeginRun acts argument was missing.");
+            PartyRaceLog.Append($"Skipped Party Race local run launch seed={seed}: BeginRun run arguments were missing.");
             return false;
         }
 
-        object acts = args[1];
         MethodInfo? method = listener.GetType()
             .GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
             .FirstOrDefault(method =>
@@ -266,21 +265,44 @@ public static class PartyRaceMod
                 }
 
                 ParameterInfo[] parameters = method.GetParameters();
-                return parameters.Length == 2 &&
-                       parameters[0].ParameterType == typeof(string) &&
-                       parameters[1].ParameterType.IsInstanceOfType(acts);
+                if (parameters.Length != args.Length || parameters[0].ParameterType != typeof(string))
+                {
+                    return false;
+                }
+
+                for (int index = 1; index < parameters.Length; index++)
+                {
+                    object? argument = args[index];
+                    Type parameterType = parameters[index].ParameterType;
+                    if (argument is null)
+                    {
+                        if (parameterType.IsValueType && Nullable.GetUnderlyingType(parameterType) is null)
+                        {
+                            return false;
+                        }
+
+                        continue;
+                    }
+
+                    if (!parameterType.IsInstanceOfType(argument))
+                    {
+                        return false;
+                    }
+                }
+
+                return true;
             });
 
         if (method is null)
         {
-            PartyRaceLog.Append($"Skipped Party Race local run launch seed={seed}: {listener.GetType().FullName} does not expose StartNewSingleplayerRun(string, acts).");
+            PartyRaceLog.Append($"Skipped Party Race local run launch seed={seed}: {listener.GetType().FullName} does not expose a matching StartNewSingleplayerRun overload.");
             return false;
         }
 
         try
         {
-            object? result = method.Invoke(listener, [seed, acts]);
-            PartyRaceLog.Append($"Invoked Party Race local singleplayer run seed={seed} via {listener.GetType().FullName}.{method.Name}.");
+            object? result = method.Invoke(listener, args);
+            PartyRaceLog.Append($"Invoked Party Race local singleplayer run seed={seed} via {listener.GetType().FullName}.{method.Name} args={args.Length}.");
             if (result is Task task)
             {
                 _ = LogLocalRunLaunchTask(task, seed);

@@ -83,15 +83,24 @@ settings. A successful load writes:
 tail -n 20 "$HOME/Library/Application Support/PartyRace/party_race_mod_loaded.log"
 ```
 
-The current proof-of-life mod installs a `Party Race` button on the STS2 main
-menu. It opens a local room UI that can create a room, ready the host, add a
-ready demo rival, and produce a local race start plan. Networking, seed
-injection, and run launch are not wired into the UI yet.
+The current test mod installs a `Party Race` button on the STS2 main menu. It
+opens an in-game room UI, exchanges Party Race messages through STS2's live
+`INetGameService`, tracks ready/team state, and broadcasts a shared race seed.
 
-The STS2 adapter now includes a `PartyRaceNetEnvelope : INetMessage` and a
-`Sts2TransportAdapter` that can send/receive Party Race core messages through
-`INetGameService`. The mod also patches STS2 lobby constructors so it can capture
-the live `INetGameService` when an STS2 multiplayer lobby exists.
+For two-PC race testing, use STS2's custom run flow after both players have
+joined the same STS2 multiplayer lobby:
+
+1. Install this mod on both computers.
+2. Launch STS2 on both computers.
+3. Host and join the same STS2 multiplayer lobby.
+4. Open `Party Race` on both computers.
+5. Ready both players and press `Start Race` on the host.
+6. Start an STS2 custom run with the Party Race seed.
+
+The mod patches both standard and custom `BeginRun` methods. Custom runs use the
+three-argument `StartNewSingleplayerRun(seed, acts, modifiers)` path so the race
+can preserve selected custom modifiers while launching each player into a local
+same-seed run.
 
 ## Tests
 
