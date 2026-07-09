@@ -162,7 +162,7 @@ public static class PartyRaceMod
     {
         try
         {
-            PartyRaceSts2Context.CaptureNetService(netService, __instance.GetType().FullName ?? __instance.GetType().Name);
+            PartyRaceSts2Context.CaptureNetService(netService, __instance, __instance.GetType().FullName ?? __instance.GetType().Name);
         }
         catch (Exception exception)
         {

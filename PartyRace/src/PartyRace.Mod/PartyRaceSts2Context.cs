@@ -1,6 +1,7 @@
 using MegaCrit.Sts2.Core.Multiplayer.Game;
 using PartyRace.Core.Core;
 using PartyRace.Core.Network;
+using System.Reflection;
 
 namespace PartyRace.Mod;
 
@@ -11,6 +12,7 @@ internal static class PartyRaceSts2Context
     public static event Action<RaceMessage, ulong>? MessageReceived;
 
     public static INetGameService? NetService { get; private set; }
+    public static object? NetServiceOwner { get; private set; }
     public static string LastCaptureSource { get; private set; } = "none";
     public static string LocalPlayerId => NetService?.NetId.ToString() ?? "local_host";
     public static string LocalLobbyId => NetService is null ? "local" : TryGetLobbyId(NetService);
@@ -30,16 +32,18 @@ internal static class PartyRaceSts2Context
         }
     }
 
-    public static void CaptureNetService(INetGameService netService, string source)
+    public static void CaptureNetService(INetGameService netService, object owner, string source)
     {
         if (ReferenceEquals(NetService, netService))
         {
+            NetServiceOwner = owner;
             LastCaptureSource = source;
             return;
         }
 
         UnregisterMessageHandler();
         NetService = netService;
+        NetServiceOwner = owner;
         LastCaptureSource = source;
 
         PartyRaceLog.Append($"Captured STS2 net service from {source}: type={netService.Type} id={netService.NetId} lobby={TryGetLobbyId(netService)}.");
@@ -55,6 +59,65 @@ internal static class PartyRaceSts2Context
         {
             s_messageHandler = null;
             PartyRaceLog.Append($"Captured net service, but failed to register message handler: {exception}");
+        }
+    }
+
+    public static bool TrySetLobbySeed(string runSeed, out string detail)
+    {
+        if (NetService is null)
+        {
+            detail = "STS2 network is not captured.";
+            PartyRaceLog.Append($"Skipped STS2 lobby seed sync seed={runSeed}: {detail}");
+            return false;
+        }
+
+        if (NetService.Type != NetGameType.Host)
+        {
+            detail = $"Only the host can set the STS2 lobby seed. Current role is {NetService.Type}.";
+            PartyRaceLog.Append($"Skipped STS2 lobby seed sync seed={runSeed}: {detail}");
+            return false;
+        }
+
+        if (NetServiceOwner is null)
+        {
+            detail = "STS2 lobby owner is not captured.";
+            PartyRaceLog.Append($"Skipped STS2 lobby seed sync seed={runSeed}: {detail}");
+            return false;
+        }
+
+        Type ownerType = NetServiceOwner.GetType();
+        MethodInfo? setSeedMethod = ownerType.GetMethod(
+            "SetSeed",
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+            binder: null,
+            types: [typeof(string)],
+            modifiers: null);
+
+        if (setSeedMethod is null)
+        {
+            detail = $"Captured STS2 lobby owner '{ownerType.FullName}' does not expose SetSeed(string).";
+            PartyRaceLog.Append($"Skipped STS2 lobby seed sync seed={runSeed}: {detail}");
+            return false;
+        }
+
+        try
+        {
+            setSeedMethod.Invoke(NetServiceOwner, [runSeed]);
+            detail = $"STS2 lobby seed synced to {runSeed}.";
+            PartyRaceLog.Append(detail);
+            return true;
+        }
+        catch (TargetInvocationException exception) when (exception.InnerException is not null)
+        {
+            detail = $"{exception.InnerException.GetType().Name}: {exception.InnerException.Message}";
+            PartyRaceLog.Append($"Failed to sync STS2 lobby seed seed={runSeed}: {exception.InnerException}");
+            return false;
+        }
+        catch (Exception exception)
+        {
+            detail = $"{exception.GetType().Name}: {exception.Message}";
+            PartyRaceLog.Append($"Failed to sync STS2 lobby seed seed={runSeed}: {exception}");
+            return false;
         }
     }
 

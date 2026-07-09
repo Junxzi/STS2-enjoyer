@@ -271,8 +271,9 @@ public sealed partial class PartyRaceMenuView : Control
             PartyRaceLog.Append($"Start race requested. {BuildStartGateText()}");
             RaceStartPlan startPlan = _roomManager.StartRace(_room);
             PartyRaceLog.Append($"Local Party Race started seed={startPlan.RunSeed} hash={startPlan.RaceConfigHash}.");
+            string seedSyncStatus = SyncSts2LobbySeed(startPlan.RunSeed);
             PublishRaceStart(startPlan);
-            Refresh($"Race start plan created. Seed {startPlan.RunSeed}");
+            Refresh($"Race start plan created. Seed {startPlan.RunSeed}{System.Environment.NewLine}{seedSyncStatus}");
         }
         catch (Exception exception)
         {
@@ -479,9 +480,27 @@ public sealed partial class PartyRaceMenuView : Control
         RaceRoom room = EnsureNetworkRoom(message.RoomId, message.SenderPlayerId);
         room.State = RaceState.Running;
         room.StartedAt = _clock.UtcNow;
+        if (_seedInput is not null)
+        {
+            _seedInput.Text = message.RunSeed;
+        }
+
+        string seedSyncStatus = SyncSts2LobbySeed(message.RunSeed);
         room.EventLog.Add(new RaceEvent(_clock.UtcNow, "NetworkRaceStart", $"Race start received seed={message.RunSeed} from {senderId}."));
         PartyRaceLog.Append($"Applied RaceStart from sender={senderId} seed={message.RunSeed} hash={message.RaceConfigHash} room={message.RoomId}.");
-        Refresh($"Network race start received. Seed {message.RunSeed}");
+        Refresh($"Network race start received. Seed {message.RunSeed}{System.Environment.NewLine}{seedSyncStatus}");
+    }
+
+    private static string SyncSts2LobbySeed(string runSeed)
+    {
+        if (!PartyRaceSts2Context.IsHost)
+        {
+            return $"Party Race seed: {runSeed}. STS2 seed sync is host-only.";
+        }
+
+        return PartyRaceSts2Context.TrySetLobbySeed(runSeed, out string detail)
+            ? detail
+            : $"Manual launch seed: {runSeed}. {detail}";
     }
 
     private RaceRoom EnsureNetworkRoom(string roomId, string hostPlayerId)
