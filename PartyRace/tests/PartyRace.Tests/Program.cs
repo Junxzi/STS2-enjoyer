@@ -217,6 +217,14 @@ static void TestPartyRaceNetworkCodec()
         AssertEqual(message.RoomId, decoded.RoomId, "Room id should round-trip.");
         AssertEqual(message.SenderPlayerId, decoded.SenderPlayerId, "Sender should round-trip.");
         AssertEqual(message.SentAt, decoded.SentAt, "Sent timestamp should round-trip.");
+
+        if (decoded is TeamUpdateMessage decodedTeamUpdate)
+        {
+            RaceTeam decodedTeam = decodedTeamUpdate.Teams.Single();
+            AssertEqual(TeamReadyState.Ready, decodedTeam.ReadyState, "Team ready state should round-trip.");
+            AssertEqual(1, decodedTeam.PlayerIds.Count, "Team player ids should round-trip.");
+            AssertEqual("host", decodedTeam.PlayerIds.Single(), "Team player id should round-trip.");
+        }
     }
 }
 

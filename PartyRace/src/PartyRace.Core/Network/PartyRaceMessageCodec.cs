@@ -73,7 +73,8 @@ public static class PartyRaceMessageCodec
     {
         JsonSerializerOptions options = new(JsonSerializerDefaults.Web)
         {
-            IncludeFields = true
+            IncludeFields = true,
+            PreferredObjectCreationHandling = JsonObjectCreationHandling.Populate
         };
         options.Converters.Add(new JsonStringEnumConverter());
         return options;
