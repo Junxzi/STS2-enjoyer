@@ -1,6 +1,8 @@
 using MegaCrit.Sts2.Core.Multiplayer.Game;
+using PartyRace.Core.Domain;
 using PartyRace.Core.Core;
 using PartyRace.Core.Network;
+using System.Collections;
 using System.Reflection;
 
 namespace PartyRace.Mod;
@@ -14,9 +16,11 @@ internal static class PartyRaceSts2Context
 
     public static INetGameService? NetService { get; private set; }
     public static object? NetServiceOwner { get; private set; }
+    public static object? CurrentRunState { get; private set; }
     public static bool IsPartyRaceRunArmed { get; private set; }
     public static string? ArmedRunSeed { get; private set; }
     public static string LastCaptureSource { get; private set; } = "none";
+    public static string LastRunStateCaptureSource { get; private set; } = "none";
     public static string LocalPlayerId => NetService?.NetId.ToString() ?? "local_host";
     public static string LocalLobbyId => NetService is null ? "local" : TryGetLobbyId(NetService);
     public static bool IsHost => NetService?.Type == NetGameType.Host;
@@ -62,6 +66,78 @@ internal static class PartyRaceSts2Context
         {
             s_messageHandler = null;
             PartyRaceLog.Append($"Captured net service, but failed to register message handler: {exception}");
+        }
+    }
+
+    public static void CaptureRunState(object? runState, string source)
+    {
+        if (runState is null)
+        {
+            return;
+        }
+
+        if (ReferenceEquals(CurrentRunState, runState))
+        {
+            LastRunStateCaptureSource = source;
+            return;
+        }
+
+        CurrentRunState = runState;
+        LastRunStateCaptureSource = source;
+        PartyRaceLog.Append($"Captured STS2 run state from {source}: {runState.GetType().FullName}.");
+    }
+
+    public static bool TryBuildLocalProgress(string teamId, long elapsedMs, out TeamProgress progress, out string detail)
+    {
+        progress = new TeamProgress(teamId, 0, 0, RoomType.Unknown, RacePhase.Unknown, 0, 1, 1, elapsedMs, false, false, false, false, "");
+
+        object? runState = CurrentRunState;
+        if (runState is null)
+        {
+            detail = "STS2 run state is not captured.";
+            return false;
+        }
+
+        try
+        {
+            int currentActIndex = Math.Max(0, TryGetIntProperty(runState, "CurrentActIndex") ?? 0);
+            int act = currentActIndex + 1;
+            int floor = Math.Max(
+                TryGetIntProperty(runState, "TotalFloor") ?? 0,
+                TryGetIntProperty(runState, "ActFloor") ?? 0);
+            object? currentRoom = TryGetPropertyValue(runState, "CurrentRoom");
+            string roomTypeName = TryGetPropertyValue(currentRoom, "RoomType")?.ToString() ?? "Unknown";
+            RoomType roomType = MapRoomType(roomTypeName);
+            RacePhase phase = MapRacePhase(roomType);
+            bool isGameOver = TryGetBoolProperty(runState, "IsGameOver") == true;
+            (int alivePlayers, int totalPlayers) = CountPlayers(runState);
+            bool isDead = isGameOver && alivePlayers == 0;
+            bool isVictory = roomType == RoomType.Victory;
+
+            progress = new TeamProgress(
+                teamId,
+                act,
+                floor,
+                isVictory ? RoomType.Victory : isDead ? RoomType.Death : roomType,
+                isVictory ? RacePhase.Victory : isDead ? RacePhase.Dead : phase,
+                0,
+                alivePlayers,
+                totalPlayers,
+                elapsedMs,
+                isVictory,
+                isDead,
+                false,
+                false,
+                "");
+
+            detail = $"act={progress.Act} floor={progress.Floor} room={progress.RoomType} phase={progress.Phase} alive={progress.AlivePlayers}/{progress.TotalPlayers}.";
+            return true;
+        }
+        catch (Exception exception)
+        {
+            detail = $"{exception.GetType().Name}: {exception.Message}";
+            PartyRaceLog.Append($"Failed to build Party Race local progress: {exception}");
+            return false;
         }
     }
 
@@ -198,6 +274,91 @@ internal static class PartyRaceSts2Context
 
         netService.SendMessage(envelope);
         PartyRaceLog.Append($"Sent Party Race hello netType={hello.NetGameType} lobby={hello.LobbyId} broadcast={envelope.ShouldBroadcast} buffer={envelope.ShouldBuffer}.");
+    }
+
+    private static object? TryGetPropertyValue(object? target, string propertyName)
+    {
+        if (target is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            PropertyInfo? property = target.GetType().GetProperty(propertyName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            return property?.GetValue(target);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static int? TryGetIntProperty(object target, string propertyName)
+    {
+        object? value = TryGetPropertyValue(target, propertyName);
+        return value is int intValue ? intValue : null;
+    }
+
+    private static bool? TryGetBoolProperty(object target, string propertyName)
+    {
+        object? value = TryGetPropertyValue(target, propertyName);
+        return value is bool boolValue ? boolValue : null;
+    }
+
+    private static (int AlivePlayers, int TotalPlayers) CountPlayers(object runState)
+    {
+        if (TryGetPropertyValue(runState, "Players") is not IEnumerable players)
+        {
+            return (1, 1);
+        }
+
+        int total = 0;
+        int alive = 0;
+        foreach (object? player in players)
+        {
+            if (player is null)
+            {
+                continue;
+            }
+
+            total++;
+            object? creature = TryGetPropertyValue(player, "Creature");
+            if (TryGetBoolProperty(creature ?? player, "IsAlive") != false)
+            {
+                alive++;
+            }
+        }
+
+        return total == 0 ? (1, 1) : (Math.Max(0, alive), total);
+    }
+
+    private static RoomType MapRoomType(string roomTypeName)
+    {
+        return roomTypeName switch
+        {
+            "Monster" => RoomType.Monster,
+            "Elite" => RoomType.Elite,
+            "Boss" => RoomType.Boss,
+            "Event" => RoomType.Event,
+            "Shop" => RoomType.Shop,
+            "RestSite" => RoomType.Rest,
+            "Treasure" => RoomType.Treasure,
+            _ => RoomType.Unknown
+        };
+    }
+
+    private static RacePhase MapRacePhase(RoomType roomType)
+    {
+        return roomType switch
+        {
+            RoomType.Monster or RoomType.Elite or RoomType.Boss => RacePhase.Combat,
+            RoomType.Event => RacePhase.EventChoice,
+            RoomType.Shop => RacePhase.Shopping,
+            RoomType.Rest => RacePhase.Resting,
+            RoomType.Treasure or RoomType.BossTreasure => RacePhase.Reward,
+            _ => RacePhase.Map
+        };
     }
 
     public static bool SendToHost(RaceMessage message)

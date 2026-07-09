@@ -12,6 +12,7 @@ public static class PartyRaceMod
 {
     private const string HarmonyId = "party_race";
     private const string MainMenuTypeName = "MegaCrit.Sts2.Core.Nodes.Screens.MainMenu.NMainMenu";
+    private const string RunNodeTypeName = "MegaCrit.Sts2.Core.Nodes.NRun";
     private const string UnlockStateTypeName = "MegaCrit.Sts2.Core.Unlocks.UnlockState";
     private const string ModelIdSerializationCacheTypeName = "MegaCrit.Sts2.Core.Multiplayer.Serialization.ModelIdSerializationCache";
     private static readonly string[] NetServiceOwnerTypeNames =
@@ -49,6 +50,7 @@ public static class PartyRaceMod
             InstallMainMenuPatch();
             InstallNetServiceCapturePatches();
             InstallBeginRunPatches();
+            InstallRunStateCapturePatches();
             InstallUnlockBypassPatches();
             InstallCustomButtonUnlockPatches();
         }
@@ -163,6 +165,31 @@ public static class PartyRaceMod
                 harmony.Patch(method, prefix: new HarmonyMethod(prefixMethod));
                 PartyRaceLog.Append($"Installed STS2 BeginRun seed capture prefix patch: {listenerType.FullName}.{method.Name}.");
             }
+        }
+    }
+
+    private static void InstallRunStateCapturePatches()
+    {
+        Type? runNodeType = AccessTools.TypeByName(RunNodeTypeName);
+        if (runNodeType is null)
+        {
+            PartyRaceLog.Append($"Could not find STS2 run node type: {RunNodeTypeName}");
+            return;
+        }
+
+        MethodInfo? postfixMethod = AccessTools.Method(typeof(PartyRaceMod), nameof(OnRunNodeCreated));
+        if (postfixMethod is null)
+        {
+            PartyRaceLog.Append("Could not find STS2 run state capture postfix.");
+            return;
+        }
+
+        Harmony harmony = new(HarmonyId);
+        foreach (MethodInfo method in AccessTools.GetDeclaredMethods(runNodeType)
+                     .Where(method => method.Name == "Create" && method.GetParameters().Length == 1))
+        {
+            harmony.Patch(method, postfix: new HarmonyMethod(postfixMethod));
+            PartyRaceLog.Append($"Installed STS2 run state capture patch: {runNodeType.FullName}.{method.Name}.");
         }
     }
 
@@ -303,6 +330,18 @@ public static class PartyRaceMod
         catch (Exception exception)
         {
             PartyRaceLog.Append($"Failed to capture STS2 net service: {exception}");
+        }
+    }
+
+    private static void OnRunNodeCreated(object __0)
+    {
+        try
+        {
+            PartyRaceSts2Context.CaptureRunState(__0, "NRun.Create");
+        }
+        catch (Exception exception)
+        {
+            PartyRaceLog.Append($"Failed to capture STS2 run state: {exception}");
         }
     }
 

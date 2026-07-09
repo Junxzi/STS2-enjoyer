@@ -4,6 +4,7 @@ using PartyRace.Core.Core;
 using PartyRace.Core.Domain;
 using PartyRace.Core.Hub;
 using PartyRace.Core.Network;
+using PartyRace.Core.Progress;
 
 namespace PartyRace.Mod;
 
@@ -16,6 +17,7 @@ public sealed partial class PartyRaceMenuView : Control
     private readonly ManualClock _clock = new(DateTimeOffset.UtcNow);
     private readonly SeedService _seedService = new();
     private readonly RaceConfigValidator _configValidator = new();
+    private readonly ProgressTracker _progressTracker = new(new SystemClock(), new ChecksumBuilder());
     private readonly RaceRoomManager _roomManager;
 
     private bool _isBuilt;
@@ -33,6 +35,8 @@ public sealed partial class PartyRaceMenuView : Control
     private RaceRoom? _room;
     private string _lastNetworkStatus = "No Party Race network messages yet.";
     private string? _lastObservedSts2RunSeed;
+    private DateTimeOffset _lastProgressPublishedAt = DateTimeOffset.MinValue;
+    private string? _lastProgressChecksum;
 
     public PartyRaceMenuView()
     {
@@ -87,6 +91,11 @@ public sealed partial class PartyRaceMenuView : Control
     public override void _Ready()
     {
         EnsureBuilt();
+    }
+
+    public override void _Process(double delta)
+    {
+        PublishLocalProgressIfDue();
     }
 
     public void Open()
@@ -490,6 +499,10 @@ public sealed partial class PartyRaceMenuView : Control
                     _lastNetworkStatus = $"Received RaceStart from {senderId} at {DateTimeOffset.Now:HH:mm:ss}.";
                     ApplyRaceStart(raceStart, senderId);
                     break;
+                case TeamProgressUpdateMessage progressUpdate:
+                    _lastNetworkStatus = $"Received Progress from {senderId} at {DateTimeOffset.Now:HH:mm:ss}.";
+                    ApplyTeamProgressUpdate(progressUpdate, senderId);
+                    break;
                 case PartyRaceHelloMessage:
                     _lastNetworkStatus = $"Received Hello from {senderId} at {DateTimeOffset.Now:HH:mm:ss}.";
                     Refresh("Network hello received.");
@@ -574,6 +587,28 @@ public sealed partial class PartyRaceMenuView : Control
         Refresh($"Network race start received. Seed {message.RunSeed}{System.Environment.NewLine}{seedSyncStatus}");
     }
 
+    private void ApplyTeamProgressUpdate(TeamProgressUpdateMessage message, ulong senderId)
+    {
+        RaceRoom room = EnsureNetworkRoom(message.RoomId, message.SenderPlayerId);
+        if (room.Teams.All(team => !string.Equals(team.TeamId, message.Progress.TeamId, StringComparison.Ordinal)))
+        {
+            PartyRaceLog.Append($"Skipped ProgressUpdate from sender={senderId}: unknown team={message.Progress.TeamId} room={message.RoomId}.");
+            return;
+        }
+
+        TeamProgress accepted = _progressTracker.AcceptUpdate(room, message.Progress);
+        room.State = RaceState.Running;
+        room.EventLog.Add(new RaceEvent(DateTimeOffset.UtcNow, "NetworkProgress", $"{message.Progress.TeamId}: A{accepted.Act} F{accepted.Floor} {accepted.RoomType}."));
+        PartyRaceLog.Append($"Applied ProgressUpdate from sender={senderId} team={accepted.TeamId} act={accepted.Act} floor={accepted.Floor} room={accepted.RoomType} phase={accepted.Phase} checksum={accepted.Checksum}.");
+
+        if (PartyRaceSts2Context.IsHost)
+        {
+            PartyRaceSts2Context.BroadcastFromHost(message, shouldBuffer: false);
+        }
+
+        Refresh("Network progress received.");
+    }
+
     private void OnSts2RunBegan(string seed, string source)
     {
         if (string.Equals(_lastObservedSts2RunSeed, seed, StringComparison.Ordinal))
@@ -616,6 +651,64 @@ public sealed partial class PartyRaceMenuView : Control
         }
 
         Refresh($"STS2 run began. Seed {seed}");
+    }
+
+    private void PublishLocalProgressIfDue()
+    {
+        if (_room is null || _room.State != RaceState.Running)
+        {
+            return;
+        }
+
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        if ((now - _lastProgressPublishedAt).TotalMilliseconds < PartyRaceConstants.ProgressUpdateIntervalMs)
+        {
+            return;
+        }
+
+        RaceTeam? localTeam = GetLocalTeam();
+        if (localTeam is null)
+        {
+            return;
+        }
+
+        long elapsedMs = _room.StartedAt is null
+            ? 0
+            : Math.Max(0, (long)(now - _room.StartedAt.Value).TotalMilliseconds);
+
+        if (!PartyRaceSts2Context.TryBuildLocalProgress(localTeam.TeamId, elapsedMs, out TeamProgress progress, out string detail))
+        {
+            PartyRaceLog.Append($"Skipped local progress publish: {detail}");
+            _lastProgressPublishedAt = now;
+            return;
+        }
+
+        TeamProgress accepted = _progressTracker.AcceptUpdate(_room, progress);
+        _lastProgressPublishedAt = now;
+        Refresh();
+
+        bool isHeartbeat = string.Equals(_lastProgressChecksum, accepted.Checksum, StringComparison.Ordinal);
+        _lastProgressChecksum = accepted.Checksum;
+
+        TeamProgressUpdateMessage message = new(_room.RoomId, PartyRaceSts2Context.LocalPlayerId, now, accepted);
+        SendMessageForCurrentRole(message, shouldBuffer: false);
+        PartyRaceLog.Append($"Published local progress team={accepted.TeamId} act={accepted.Act} floor={accepted.Floor} room={accepted.RoomType} phase={accepted.Phase} checksum={accepted.Checksum} heartbeat={isHeartbeat}. {detail}");
+    }
+
+    private RaceTeam? GetLocalTeam()
+    {
+        if (_room is null)
+        {
+            return null;
+        }
+
+        RacePlayer? localPlayer = _room.Players.FirstOrDefault(player => string.Equals(player.PlayerId, PartyRaceSts2Context.LocalPlayerId, StringComparison.Ordinal));
+        if (localPlayer?.TeamId is null)
+        {
+            return null;
+        }
+
+        return _room.Teams.FirstOrDefault(team => string.Equals(team.TeamId, localPlayer.TeamId, StringComparison.Ordinal));
     }
 
     private static string SyncSts2LobbySeed(string runSeed)
