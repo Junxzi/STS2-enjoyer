@@ -35,11 +35,21 @@ internal static class PartyRaceSts2Context
         s_transport?.Dispose();
         NetService = netService;
         LastCaptureSource = source;
-        s_transport = new Sts2TransportAdapter(netService);
-        s_transport.MessageReceived += (message, senderId) =>
-            PartyRaceLog.Append($"Received Party Race net message kind={message.GetType().Name} sender={senderId} room={message.RoomId}.");
 
         PartyRaceLog.Append($"Captured STS2 net service from {source}: type={netService.Type} id={netService.NetId} lobby={TryGetLobbyId(netService)}.");
+
+        try
+        {
+            s_transport = new Sts2TransportAdapter(netService);
+            s_transport.MessageReceived += (message, senderId) =>
+                PartyRaceLog.Append($"Received Party Race net message kind={message.GetType().Name} sender={senderId} room={message.RoomId}.");
+            PartyRaceLog.Append("Initialized Party Race STS2 transport adapter.");
+        }
+        catch (Exception exception)
+        {
+            s_transport = null;
+            PartyRaceLog.Append($"Captured net service, but failed to initialize transport adapter: {exception}");
+        }
     }
 
     private static string TryGetLobbyId(INetGameService netService)
