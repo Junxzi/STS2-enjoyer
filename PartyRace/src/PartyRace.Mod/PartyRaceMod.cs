@@ -12,6 +12,7 @@ public static class PartyRaceMod
 {
     private const string HarmonyId = "party_race";
     private const string MainMenuTypeName = "MegaCrit.Sts2.Core.Nodes.Screens.MainMenu.NMainMenu";
+    private const string UnlockStateTypeName = "MegaCrit.Sts2.Core.Unlocks.UnlockState";
     private static readonly string[] NetServiceOwnerTypeNames =
     [
         "MegaCrit.Sts2.Core.Multiplayer.Game.Lobby.StartRunLobby",
@@ -26,6 +27,11 @@ public static class PartyRaceMod
         "MegaCrit.Sts2.Core.Nodes.Screens.CustomRun.NCustomRunScreen",
         "MegaCrit.Sts2.Core.Nodes.Screens.DailyRun.NDailyRunLoadScreen"
     ];
+    private static readonly string[] CustomButtonOwnerTypeNames =
+    [
+        "MegaCrit.Sts2.Core.Nodes.Screens.MainMenu.NSingleplayerSubmenu",
+        "MegaCrit.Sts2.Core.Nodes.Screens.MainMenu.NMultiplayerHostSubmenu"
+    ];
     private const string ButtonNodeName = "PartyRaceMainMenuButton";
     private static bool s_dependencyResolverInstalled;
 
@@ -39,6 +45,8 @@ public static class PartyRaceMod
             InstallMainMenuPatch();
             InstallNetServiceCapturePatches();
             InstallBeginRunPatches();
+            InstallUnlockBypassPatches();
+            InstallCustomButtonUnlockPatches();
         }
         catch (Exception exception)
         {
@@ -154,6 +162,65 @@ public static class PartyRaceMod
         }
     }
 
+    private static void InstallUnlockBypassPatches()
+    {
+        Type? unlockStateType = AccessTools.TypeByName(UnlockStateTypeName);
+        if (unlockStateType is null)
+        {
+            PartyRaceLog.Append($"Could not find STS2 unlock state type: {UnlockStateTypeName}");
+            return;
+        }
+
+        Harmony harmony = new(HarmonyId);
+        MethodInfo? boolPostfix = AccessTools.Method(typeof(PartyRaceMod), nameof(ForceUnlockedBool));
+        MethodInfo? intPostfix = AccessTools.Method(typeof(PartyRaceMod), nameof(ForceUnlockedCount));
+        if (boolPostfix is null || intPostfix is null)
+        {
+            PartyRaceLog.Append("Could not find unlock bypass postfix methods.");
+            return;
+        }
+
+        foreach (MethodInfo method in AccessTools.GetDeclaredMethods(unlockStateType))
+        {
+            if (method.Name == "IsEpochRevealed" && method.ReturnType == typeof(bool))
+            {
+                harmony.Patch(method, postfix: new HarmonyMethod(boolPostfix));
+                PartyRaceLog.Append($"Installed unlock bypass patch: {unlockStateType.FullName}.{method.Name}.");
+            }
+            else if ((method.Name == "get_NumberOfRuns" || method.Name == "EpochUnlockCount") &&
+                     method.ReturnType == typeof(int))
+            {
+                harmony.Patch(method, postfix: new HarmonyMethod(intPostfix));
+                PartyRaceLog.Append($"Installed unlock count bypass patch: {unlockStateType.FullName}.{method.Name}.");
+            }
+        }
+    }
+
+    private static void InstallCustomButtonUnlockPatches()
+    {
+        Harmony harmony = new(HarmonyId);
+        MethodInfo? postfixMethod = AccessTools.Method(typeof(PartyRaceMod), nameof(OnCustomButtonOwnerReady));
+        if (postfixMethod is null)
+        {
+            PartyRaceLog.Append("Could not find custom button unlock postfix.");
+            return;
+        }
+
+        foreach (string typeName in CustomButtonOwnerTypeNames)
+        {
+            Type? ownerType = AccessTools.TypeByName(typeName);
+            MethodInfo? readyMethod = ownerType is null ? null : AccessTools.Method(ownerType, "_Ready");
+            if (ownerType is null || readyMethod is null)
+            {
+                PartyRaceLog.Append($"Could not find STS2 custom button owner ready method: {typeName}._Ready");
+                continue;
+            }
+
+            harmony.Patch(readyMethod, postfix: new HarmonyMethod(postfixMethod));
+            PartyRaceLog.Append($"Installed custom button unlock patch: {ownerType.FullName}._Ready.");
+        }
+    }
+
     private static void OnMainMenuReady(object __instance)
     {
         try
@@ -204,6 +271,48 @@ public static class PartyRaceMod
         catch (Exception exception)
         {
             PartyRaceLog.Append($"Failed to capture STS2 net service: {exception}");
+        }
+    }
+
+    private static void ForceUnlockedBool(ref bool __result)
+    {
+        __result = true;
+    }
+
+    private static void ForceUnlockedCount(ref int __result)
+    {
+        __result = Math.Max(__result, 999);
+    }
+
+    private static void OnCustomButtonOwnerReady(object __instance)
+    {
+        try
+        {
+            FieldInfo? field = __instance.GetType().GetField("_customButton", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            object? customButton = field?.GetValue(__instance);
+            if (customButton is null)
+            {
+                PartyRaceLog.Append($"Skipped custom button unlock for {__instance.GetType().FullName}: _customButton was not found.");
+                return;
+            }
+
+            if (customButton is Control control)
+            {
+                control.Visible = true;
+                control.MouseFilter = Control.MouseFilterEnum.Stop;
+            }
+
+            TrySetProperty(customButton, "Disabled", false);
+            TrySetProperty(customButton, "IsLocked", false);
+            TryInvoke(customButton, "SetDisabled", false);
+            TryInvoke(customButton, "SetVisuallyLocked", false);
+            TryInvoke(customButton, "SetLocked", false);
+            TryInvoke(customButton, "SetVisible", true);
+            PartyRaceLog.Append($"Forced custom button unlocked for {__instance.GetType().FullName}.");
+        }
+        catch (Exception exception)
+        {
+            PartyRaceLog.Append($"Failed to force custom button unlocked for {__instance.GetType().FullName}: {exception}");
         }
     }
 
@@ -320,6 +429,33 @@ public static class PartyRaceMod
             PartyRaceLog.Append($"Failed to launch Party Race local singleplayer run seed={seed}: {exception}");
             return false;
         }
+    }
+
+    private static void TrySetProperty(object target, string propertyName, object value)
+    {
+        PropertyInfo? property = target.GetType().GetProperty(propertyName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        if (property?.CanWrite == true && property.PropertyType.IsInstanceOfType(value))
+        {
+            property.SetValue(target, value);
+        }
+    }
+
+    private static void TryInvoke(object target, string methodName, object argument)
+    {
+        MethodInfo? method = target.GetType()
+            .GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+            .FirstOrDefault(method =>
+            {
+                if (method.Name != methodName)
+                {
+                    return false;
+                }
+
+                ParameterInfo[] parameters = method.GetParameters();
+                return parameters.Length == 1 && parameters[0].ParameterType.IsInstanceOfType(argument);
+            });
+
+        method?.Invoke(target, [argument]);
     }
 
     private static async Task LogLocalRunLaunchTask(Task task, string seed)

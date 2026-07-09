@@ -102,6 +102,11 @@ three-argument `StartNewSingleplayerRun(seed, acts, modifiers)` path so the race
 can preserve selected custom modifiers while launching each player into a local
 same-seed run.
 
+For convenience during Party Race testing, the mod also bypasses STS2 epoch
+unlock checks while the mod is loaded. This is a runtime-only bypass: it does not
+write unlock progress to the profile save, and removing the mod restores the
+normal locked/unlocked state.
+
 ## Tests
 
 ```powershell
