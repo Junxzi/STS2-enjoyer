@@ -124,9 +124,9 @@ public sealed partial class PartyRaceMenuView : Control
             PartyRaceLog.Append("Party Race menu closed.");
         };
 
-        _statusLabel = AddLabel("Create/sync a room to begin.", 24, 204, 380, 76);
-        _teamsLabel = AddLabel("Teams: none", 24, 294, 620, 72);
-        _eventsLabel = AddLabel("Events: none", 24, 380, 360, 96);
+        _statusLabel = AddLabel("Create/sync a room to begin.", 24, 204, 390, 104);
+        _teamsLabel = AddLabel("Teams: none", 24, 320, 620, 64);
+        _eventsLabel = AddLabel("Events: none", 24, 396, 360, 80);
         Refresh();
     }
 
@@ -272,7 +272,7 @@ public sealed partial class PartyRaceMenuView : Control
         }
         catch (Exception exception)
         {
-            RefreshError("Could not start race", exception);
+            RefreshError("Could not start race", exception, BuildStartGateText());
         }
     }
 
@@ -549,11 +549,16 @@ public sealed partial class PartyRaceMenuView : Control
         }
     }
 
-    private void RefreshError(string prefix, Exception exception)
+    private void RefreshError(string prefix, Exception exception, string? detail = null)
     {
         string message = exception is PartyRaceException partyRaceException
-            ? $"{prefix}: {partyRaceException.Code}"
+            ? $"{prefix}: {partyRaceException.Code} - {partyRaceException.Message}"
             : $"{prefix}: {exception.Message}";
+        if (!string.IsNullOrWhiteSpace(detail))
+        {
+            message = $"{message}{System.Environment.NewLine}{detail}";
+        }
+
         PartyRaceLog.Append(message);
         Refresh(message);
     }
@@ -565,7 +570,29 @@ public sealed partial class PartyRaceMenuView : Control
             return $"No room. Create/sync a room to begin.{System.Environment.NewLine}{PartyRaceSts2Context.StatusText}{System.Environment.NewLine}{_lastNetworkStatus}";
         }
 
-        return $"Room {_room.RoomName} | State {_room.State} | Hash {_room.Config.RaceConfigHash}{System.Environment.NewLine}{PartyRaceSts2Context.StatusText}{System.Environment.NewLine}{_lastNetworkStatus}";
+        return $"Room {_room.RoomName} | State {_room.State} | Hash {_room.Config.RaceConfigHash}{System.Environment.NewLine}{PartyRaceSts2Context.StatusText}{System.Environment.NewLine}{_lastNetworkStatus}{System.Environment.NewLine}{BuildStartGateText()}";
+    }
+
+    private string BuildStartGateText()
+    {
+        if (_room is null)
+        {
+            return "No Party Race room exists.";
+        }
+
+        List<string> blockers = [];
+        if (_room.Teams.Count < 2)
+        {
+            blockers.Add("Need at least two teams.");
+        }
+
+        blockers.AddRange(_room.Teams
+            .Where(team => team.PlayerIds.Count == 0 || team.ReadyState != TeamReadyState.Ready)
+            .Select(team => $"{team.TeamName} is not ready."));
+
+        return blockers.Count == 0
+            ? "All teams are ready."
+            : $"Start blocked: {string.Join(" ", blockers)}";
     }
 
     private string BuildTeamsText()
