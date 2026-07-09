@@ -172,27 +172,55 @@ public static class PartyRaceMod
         }
 
         Harmony harmony = new(HarmonyId);
-        MethodInfo? boolPostfix = AccessTools.Method(typeof(PartyRaceMod), nameof(ForceUnlockedBool));
+        MethodInfo? instancePostfix = AccessTools.Method(typeof(PartyRaceMod), nameof(ForceUnlockStateInstance));
+        MethodInfo? resultPostfix = AccessTools.Method(typeof(PartyRaceMod), nameof(ForceUnlockStateResult));
         MethodInfo? intPostfix = AccessTools.Method(typeof(PartyRaceMod), nameof(ForceUnlockedCount));
-        if (boolPostfix is null || intPostfix is null)
+        if (instancePostfix is null || resultPostfix is null || intPostfix is null)
         {
             PartyRaceLog.Append("Could not find unlock bypass postfix methods.");
             return;
         }
 
+        foreach (ConstructorInfo constructor in AccessTools.GetDeclaredConstructors(unlockStateType))
+        {
+            TryPatch(harmony, constructor, instancePostfix, $"{unlockStateType.FullName}..ctor");
+        }
+
         foreach (MethodInfo method in AccessTools.GetDeclaredMethods(unlockStateType))
         {
-            if (method.Name == "IsEpochRevealed" && method.ReturnType == typeof(bool))
-            {
-                harmony.Patch(method, postfix: new HarmonyMethod(boolPostfix));
-                PartyRaceLog.Append($"Installed unlock bypass patch: {unlockStateType.FullName}.{method.Name}.");
-            }
-            else if ((method.Name == "get_NumberOfRuns" || method.Name == "EpochUnlockCount") &&
+            if ((method.Name == "get_NumberOfRuns" || method.Name == "EpochUnlockCount") &&
                      method.ReturnType == typeof(int))
             {
-                harmony.Patch(method, postfix: new HarmonyMethod(intPostfix));
-                PartyRaceLog.Append($"Installed unlock count bypass patch: {unlockStateType.FullName}.{method.Name}.");
+                TryPatch(harmony, method, intPostfix, $"{unlockStateType.FullName}.{method.Name}");
             }
+            else if (method.ReturnType == unlockStateType && !method.ContainsGenericParameters)
+            {
+                TryPatch(harmony, method, resultPostfix, $"{unlockStateType.FullName}.{method.Name}");
+            }
+        }
+
+        foreach (Type type in unlockStateType.Assembly.GetTypes())
+        {
+            foreach (MethodInfo method in type.GetMethods(BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
+            {
+                if (method.ReturnType == unlockStateType && !method.ContainsGenericParameters)
+                {
+                    TryPatch(harmony, method, resultPostfix, $"{type.FullName}.{method.Name}");
+                }
+            }
+        }
+    }
+
+    private static void TryPatch(Harmony harmony, MethodBase method, MethodInfo postfix, string description)
+    {
+        try
+        {
+            harmony.Patch(method, postfix: new HarmonyMethod(postfix));
+            PartyRaceLog.Append($"Installed unlock bypass patch: {description}.");
+        }
+        catch (Exception exception)
+        {
+            PartyRaceLog.Append($"Skipped unlock bypass patch {description}: {exception.GetType().Name}: {exception.Message}");
         }
     }
 
@@ -274,14 +302,62 @@ public static class PartyRaceMod
         }
     }
 
-    private static void ForceUnlockedBool(ref bool __result)
+    private static void ForceUnlockStateInstance(object __instance)
     {
-        __result = true;
+        ForceUnlockState(__instance);
+    }
+
+    private static void ForceUnlockStateResult(object __result)
+    {
+        ForceUnlockState(__result);
     }
 
     private static void ForceUnlockedCount(ref int __result)
     {
         __result = Math.Max(__result, 999);
+    }
+
+    private static void ForceUnlockState(object? unlockState)
+    {
+        if (unlockState is null)
+        {
+            return;
+        }
+
+        FieldInfo? field = unlockState.GetType().GetField("_unlockedEpochIds", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        if (field?.GetValue(unlockState) is not HashSet<string> unlockedEpochIds)
+        {
+            PartyRaceLog.Append($"Skipped force unlock state for {unlockState.GetType().FullName}: _unlockedEpochIds was not a HashSet<string>.");
+            return;
+        }
+
+        int before = unlockedEpochIds.Count;
+        foreach (string epochId in GetAllEpochIds(unlockState.GetType().Assembly))
+        {
+            unlockedEpochIds.Add(epochId);
+        }
+
+        FieldInfo? numberOfRunsField = unlockState.GetType().GetField("<NumberOfRuns>k__BackingField", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        if (numberOfRunsField?.FieldType == typeof(int))
+        {
+            numberOfRunsField.SetValue(unlockState, Math.Max((int)(numberOfRunsField.GetValue(unlockState) ?? 0), 999));
+        }
+
+        PartyRaceLog.Append($"Forced unlock state epochs {before}->{unlockedEpochIds.Count} for {unlockState.GetType().FullName}.");
+    }
+
+    private static IEnumerable<string> GetAllEpochIds(Assembly sts2Assembly)
+    {
+        foreach (Type type in sts2Assembly.GetTypes())
+        {
+            if (type.Namespace != "MegaCrit.Sts2.Core.Timeline.Epochs" ||
+                !type.Name.EndsWith("Epoch", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            yield return type.Name;
+        }
     }
 
     private static void OnCustomButtonOwnerReady(object __instance)
