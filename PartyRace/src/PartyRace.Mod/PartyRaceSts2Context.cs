@@ -1,5 +1,6 @@
 using MegaCrit.Sts2.Core.Multiplayer.Game;
 using PartyRace.Sts2Adapter;
+using System.Runtime.CompilerServices;
 
 namespace PartyRace.Mod;
 
@@ -40,16 +41,22 @@ internal static class PartyRaceSts2Context
 
         try
         {
-            s_transport = new Sts2TransportAdapter(netService);
-            s_transport.MessageReceived += (message, senderId) =>
-                PartyRaceLog.Append($"Received Party Race net message kind={message.GetType().Name} sender={senderId} room={message.RoomId}.");
-            PartyRaceLog.Append("Initialized Party Race STS2 transport adapter.");
+            InitializeTransportAdapter(netService);
         }
         catch (Exception exception)
         {
             s_transport = null;
             PartyRaceLog.Append($"Captured net service, but failed to initialize transport adapter: {exception}");
         }
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void InitializeTransportAdapter(INetGameService netService)
+    {
+        s_transport = new Sts2TransportAdapter(netService);
+        s_transport.MessageReceived += (message, senderId) =>
+            PartyRaceLog.Append($"Received Party Race net message kind={message.GetType().Name} sender={senderId} room={message.RoomId}.");
+        PartyRaceLog.Append("Initialized Party Race STS2 transport adapter.");
     }
 
     private static string TryGetLobbyId(INetGameService netService)
