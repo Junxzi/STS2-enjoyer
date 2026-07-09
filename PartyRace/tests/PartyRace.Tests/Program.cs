@@ -2,6 +2,7 @@ using PartyRace.Core.Compatibility;
 using PartyRace.Core.Core;
 using PartyRace.Core.Domain;
 using PartyRace.Core.Hub;
+using PartyRace.Core.Network;
 using PartyRace.Core.Progress;
 using PartyRace.Core.RunSession;
 using PartyRace.Core.UI;
@@ -16,6 +17,7 @@ List<(string Name, Action Test)> tests =
     ("Result calculator ranks victory before deeper death", TestResultRanking),
     ("Seed injection failure returns manual fallback", TestSeedFallback),
     ("Heartbeat status warns and disconnects", TestHeartbeatStatus),
+    ("Party Race network codec round-trips core messages", TestPartyRaceNetworkCodec),
     ("Local STS2 install exposes adapter hook prerequisites", TestLocalSts2HookProbe)
 ];
 
@@ -181,16 +183,56 @@ static void TestHeartbeatStatus()
     AssertTrue(disconnected.IsDisconnected, "Heartbeat should disconnect after threshold.");
 }
 
+static void TestPartyRaceNetworkCodec()
+{
+    DateTimeOffset sentAt = new(2026, 7, 9, 0, 0, 0, TimeSpan.Zero);
+    RaceMessage[] messages =
+    [
+        new ReadyUpdateMessage("room-1", "host", sentAt, "host", true, "ironclad"),
+        new RaceStartMessage("room-1", "host", sentAt, "K9M2AB8Q4Z7L", "ABCD-1234-FEED"),
+        new TeamProgressUpdateMessage(
+            "room-1",
+            "host",
+            sentAt,
+            new TeamProgress("team_01", 1, 4, RoomType.Elite, RacePhase.Combat, 0, 1, 1, 12_345, false, false, false, false, "checksum"))
+    ];
+
+    foreach (RaceMessage message in messages)
+    {
+        EncodedPartyRaceMessage encoded = PartyRaceMessageCodec.Encode(message);
+        RaceMessage decoded = PartyRaceMessageCodec.Decode(encoded);
+
+        AssertEqual(message.GetType(), decoded.GetType(), "Decoded message type should match.");
+        AssertEqual(message.RoomId, decoded.RoomId, "Room id should round-trip.");
+        AssertEqual(message.SenderPlayerId, decoded.SenderPlayerId, "Sender should round-trip.");
+        AssertEqual(message.SentAt, decoded.SentAt, "Sent timestamp should round-trip.");
+    }
+}
+
 static void TestLocalSts2HookProbe()
 {
-    const string installPath = @"D:\SteamLibrary\steamapps\common\Slay the Spire 2";
-    if (!Directory.Exists(installPath))
+    Sts2GameInfo info;
+    try
+    {
+        info = Sts2GameInfo.FromKnownInstall();
+    }
+    catch (DirectoryNotFoundException)
+    {
+        Console.WriteLine("SKIP local STS2 install not found.");
+        return;
+    }
+    catch (FileNotFoundException)
     {
         Console.WriteLine("SKIP local STS2 install not found.");
         return;
     }
 
-    Sts2GameInfo info = Sts2GameInfo.FromKnownInstall();
+    if (!Directory.Exists(info.InstallPath))
+    {
+        Console.WriteLine("SKIP local STS2 install not found.");
+        return;
+    }
+
     Sts2HookReadiness readiness = new Sts2HookProbe().Probe(info);
 
     AssertEqual("v0.107.1", info.Version, "Observed local STS2 version should match release_info.json.");

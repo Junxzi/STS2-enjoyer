@@ -2,6 +2,13 @@
 
 これは、デッキ構築型ローグライクを自作するための「開発資料のひな形」です。
 
+## Party Race mod download
+
+Slay the Spire 2 の同一シード・チームレース検証modは、GitHub Releasesからダウンロードできます。
+
+- [party_race_windows_mod.zip](https://github.com/junxzi/STS2-enjoyer/releases/latest/download/party_race_windows_mod.zip)
+- 実装と導入手順: [PartyRace/README.md](PartyRace/README.md)
+
 Slay the Spire 2 のような商用作品を参考にする場合でも、ここでは実データ・固有名詞・カード内容・画像・音声・内部実装をコピーせず、次の観点だけを抽象化して使います。
 
 - ランごとに構造が変わるマップ

@@ -5,15 +5,30 @@
     <Nullable>enable</Nullable>
     <AssemblyName>PartyRace.Mod</AssemblyName>
     <RootNamespace>PartyRace.Mod</RootNamespace>
+    <Sts2InstallPath Condition="'$(Sts2InstallPath)' == ''">D:\SteamLibrary\steamapps\common\Slay the Spire 2</Sts2InstallPath>
+    <Sts2DataPath>$(Sts2InstallPath)\data_sts2_windows_x86_64</Sts2DataPath>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\PartyRace.Core\PartyRace.Core.csproj" />
+    <ProjectReference Include="..\PartyRace.Sts2Adapter\PartyRace.Sts2Adapter.csproj" />
   </ItemGroup>
 
-  <ItemGroup Condition="Exists('D:\SteamLibrary\steamapps\common\Slay the Spire 2\data_sts2_windows_x86_64\sts2.dll')">
+  <Target Name="ValidateSts2References" BeforeTargets="ResolveReferences" Condition="!Exists('$(Sts2DataPath)\sts2.dll')">
+    <Error Text="PartyRace.Mod requires sts2.dll. Pass /p:Sts2InstallPath=&quot;path\to\Slay the Spire 2&quot; or install STS2 at $(Sts2InstallPath)." />
+  </Target>
+
+  <ItemGroup Condition="Exists('$(Sts2DataPath)\sts2.dll')">
     <Reference Include="sts2">
-      <HintPath>D:\SteamLibrary\steamapps\common\Slay the Spire 2\data_sts2_windows_x86_64\sts2.dll</HintPath>
+      <HintPath>$(Sts2DataPath)\sts2.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="GodotSharp">
+      <HintPath>$(Sts2DataPath)\GodotSharp.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>$(Sts2DataPath)\0Harmony.dll</HintPath>
       <Private>false</Private>
     </Reference>
   </ItemGroup>

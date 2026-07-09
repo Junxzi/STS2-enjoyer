@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 
@@ -6,6 +7,12 @@ string assemblyPath = args.Length > 0
     : @"D:\SteamLibrary\steamapps\common\Slay the Spire 2\data_sts2_windows_x86_64\sts2.dll";
 
 string filter = args.Length > 1 ? args[1] : "Mod";
+
+if (args.Any(arg => string.Equals(arg, "--reflection", StringComparison.Ordinal)))
+{
+    RunReflectionInspection(assemblyPath, filter);
+    return;
+}
 
 using FileStream stream = File.OpenRead(assemblyPath);
 using PEReader peReader = new(stream);
@@ -130,4 +137,113 @@ string FormatTypeDefinition(TypeDefinitionHandle handle)
     string ns = reader.GetString(definition.Namespace);
     string name = reader.GetString(definition.Name);
     return string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}";
+}
+
+void RunReflectionInspection(string targetAssemblyPath, string nameFilter)
+{
+    string? targetDirectory = Path.GetDirectoryName(targetAssemblyPath);
+    AppDomain.CurrentDomain.AssemblyResolve += (_, args) =>
+    {
+        if (string.IsNullOrWhiteSpace(targetDirectory))
+        {
+            return null;
+        }
+
+        string? assemblyName = new AssemblyName(args.Name).Name;
+        if (string.IsNullOrWhiteSpace(assemblyName))
+        {
+            return null;
+        }
+
+        string candidatePath = Path.Combine(targetDirectory, $"{assemblyName}.dll");
+        return File.Exists(candidatePath) ? Assembly.LoadFrom(candidatePath) : null;
+    };
+
+    Assembly assembly = Assembly.LoadFrom(targetAssemblyPath);
+    Type[] types;
+    try
+    {
+        types = assembly.GetTypes();
+    }
+    catch (ReflectionTypeLoadException exception)
+    {
+        types = exception.Types.Where(type => type is not null).Cast<Type>().ToArray();
+    }
+
+    foreach (Type type in types.Where(type => type.FullName?.Contains(nameFilter, StringComparison.OrdinalIgnoreCase) == true).OrderBy(type => type.FullName))
+    {
+        Console.WriteLine($"TYPE {FormatType(type)}");
+        if (type.BaseType is not null)
+        {
+            Console.WriteLine($"  BASE {FormatType(type.BaseType)}");
+        }
+
+        foreach (Type interfaceType in type.GetInterfaces().OrderBy(FormatType))
+        {
+            Console.WriteLine($"  INTERFACE {FormatType(interfaceType)}");
+        }
+
+        foreach (PropertyInfo property in type.GetProperties(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly))
+        {
+            Console.WriteLine($"  PROP {FormatType(property.PropertyType)} {property.Name}");
+        }
+
+        foreach (FieldInfo field in type.GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly))
+        {
+            Console.WriteLine($"  FIELD {FormatType(field.FieldType)} {field.Name}");
+        }
+
+        foreach (ConstructorInfo constructor in type.GetConstructors(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly))
+        {
+            Console.WriteLine($"  CTOR {FormatMethod(constructor)}");
+        }
+
+        foreach (MethodInfo method in type.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly).OrderBy(method => method.Name))
+        {
+            Console.WriteLine($"  METHOD {FormatType(method.ReturnType)} {FormatMethod(method)}");
+        }
+
+        Console.WriteLine();
+    }
+}
+
+string FormatMethod(MethodBase method)
+{
+    string parameters = string.Join(", ", method.GetParameters().Select(parameter => $"{FormatType(parameter.ParameterType)} {parameter.Name}"));
+    string genericArguments = method.IsGenericMethod
+        ? $"<{string.Join(", ", method.GetGenericArguments().Select(FormatType))}>"
+        : string.Empty;
+    return $"{method.Name}{genericArguments}({parameters})";
+}
+
+string FormatType(Type type)
+{
+    if (type.IsGenericParameter)
+    {
+        return type.Name;
+    }
+
+    if (type.IsArray)
+    {
+        return $"{FormatType(type.GetElementType()!)}[]";
+    }
+
+    if (type.IsByRef)
+    {
+        return $"{FormatType(type.GetElementType()!)}&";
+    }
+
+    if (!type.IsGenericType)
+    {
+        return type.FullName ?? type.Name;
+    }
+
+    string name = type.GetGenericTypeDefinition().FullName ?? type.Name;
+    int tickIndex = name.IndexOf('`', StringComparison.Ordinal);
+    if (tickIndex >= 0)
+    {
+        name = name[..tickIndex];
+    }
+
+    return $"{name}<{string.Join(", ", type.GetGenericArguments().Select(FormatType))}>";
 }

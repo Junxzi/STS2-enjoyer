@@ -6,27 +6,29 @@
     <AssemblyName>PartyRace.Sts2Adapter</AssemblyName>
     <RootNamespace>PartyRace.Sts2Adapter</RootNamespace>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <Sts2InstallPath Condition="'$(Sts2InstallPath)' == ''">D:\SteamLibrary\steamapps\common\Slay the Spire 2</Sts2InstallPath>
+    <Sts2DataPath>$(Sts2InstallPath)\data_sts2_windows_x86_64</Sts2DataPath>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\PartyRace.Core\PartyRace.Core.csproj" />
   </ItemGroup>
 
-  <ItemGroup Condition="Exists('D:\SteamLibrary\steamapps\common\Slay the Spire 2\data_sts2_windows_x86_64\sts2.dll')">
+  <ItemGroup Condition="Exists('$(Sts2DataPath)\sts2.dll')">
     <Reference Include="sts2">
-      <HintPath>D:\SteamLibrary\steamapps\common\Slay the Spire 2\data_sts2_windows_x86_64\sts2.dll</HintPath>
+      <HintPath>$(Sts2DataPath)\sts2.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="GodotSharp">
-      <HintPath>D:\SteamLibrary\steamapps\common\Slay the Spire 2\data_sts2_windows_x86_64\GodotSharp.dll</HintPath>
+      <HintPath>$(Sts2DataPath)\GodotSharp.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="0Harmony">
-      <HintPath>D:\SteamLibrary\steamapps\common\Slay the Spire 2\data_sts2_windows_x86_64\0Harmony.dll</HintPath>
+      <HintPath>$(Sts2DataPath)\0Harmony.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="Steamworks.NET">
-      <HintPath>D:\SteamLibrary\steamapps\common\Slay the Spire 2\data_sts2_windows_x86_64\Steamworks.NET.dll</HintPath>
+      <HintPath>$(Sts2DataPath)\Steamworks.NET.dll</HintPath>
       <Private>false</Private>
     </Reference>
   </ItemGroup>
